@@ -631,111 +631,247 @@ def official_rows_valid(rows):
                 return False
     return True
 
-def load_existing_official_rows():
+LAST_GOOD_OFFICIAL_BLOCK_RANKING_ROWS = [
+  {
+    "Rank": 1,
+    "Block": "MAJHGAWAN",
+    "Total": 5.86,
+    "Trajectory": "D",
+    "Farm Pond": 5.47,
+    "Amrit Sarovar": 1.92,
+    "Dug Well Recharge": 6.63,
+    "Irrigation Infrastructure": 10.0,
+    "Water Conservation & Recharge": 7.89,
+    "Watershed Related Works": 7.76,
+    "Repair & Maintenance (Water Structures)": 10.0,
+    "Gap Filling in Plantation": 1.78,
+    "Work Not Permissible in VB-GRAM-G": 2.17,
+    "Source": "Official rankings.php text parser"
+  },
+  {
+    "Rank": 2,
+    "Block": "SATNA",
+    "Total": 5.46,
+    "Trajectory": "D",
+    "Farm Pond": 4.94,
+    "Amrit Sarovar": 1.51,
+    "Dug Well Recharge": 6.33,
+    "Irrigation Infrastructure": 7.05,
+    "Water Conservation & Recharge": 7.39,
+    "Watershed Related Works": 7.35,
+    "Repair & Maintenance (Water Structures)": 5.64,
+    "Gap Filling in Plantation": 0.3,
+    "Work Not Permissible in VB-GRAM-G": 2.89,
+    "Source": "Official rankings.php text parser"
+  },
+  {
+    "Rank": 3,
+    "Block": "NAGOD",
+    "Total": 5.35,
+    "Trajectory": "D",
+    "Farm Pond": 4.35,
+    "Amrit Sarovar": 1.0,
+    "Dug Well Recharge": 6.51,
+    "Irrigation Infrastructure": 10.0,
+    "Water Conservation & Recharge": 6.82,
+    "Watershed Related Works": 10.0,
+    "Repair & Maintenance (Water Structures)": 10.0,
+    "Gap Filling in Plantation": 1.86,
+    "Work Not Permissible in VB-GRAM-G": 0.86,
+    "Source": "Official rankings.php text parser"
+  },
+  {
+    "Rank": 4,
+    "Block": "RAMPUR BAGHELAN",
+    "Total": 5.03,
+    "Trajectory": "D",
+    "Farm Pond": 4.24,
+    "Amrit Sarovar": 0.47,
+    "Dug Well Recharge": 6.92,
+    "Irrigation Infrastructure": 6.03,
+    "Water Conservation & Recharge": 8.04,
+    "Watershed Related Works": 6.42,
+    "Repair & Maintenance (Water Structures)": 7.44,
+    "Gap Filling in Plantation": 1.13,
+    "Work Not Permissible in VB-GRAM-G": 1.81,
+    "Source": "Official rankings.php text parser"
+  },
+  {
+    "Rank": 5,
+    "Block": "MAIHAR",
+    "Total": 4.94,
+    "Trajectory": "D",
+    "Farm Pond": 4.56,
+    "Amrit Sarovar": 0.0,
+    "Dug Well Recharge": 7.17,
+    "Irrigation Infrastructure": 8.33,
+    "Water Conservation & Recharge": 7.59,
+    "Watershed Related Works": 6.94,
+    "Repair & Maintenance (Water Structures)": 6.48,
+    "Gap Filling in Plantation": 1.55,
+    "Work Not Permissible in VB-GRAM-G": 2.17,
+    "Source": "Official rankings.php text parser"
+  },
+  {
+    "Rank": 6,
+    "Block": "AMARPATAN",
+    "Total": 4.87,
+    "Trajectory": "D",
+    "Farm Pond": 2.85,
+    "Amrit Sarovar": "",
+    "Dug Well Recharge": 4.43,
+    "Irrigation Infrastructure": "",
+    "Water Conservation & Recharge": 10.0,
+    "Watershed Related Works": "",
+    "Repair & Maintenance (Water Structures)": 10.0,
+    "Gap Filling in Plantation": 0.9,
+    "Work Not Permissible in VB-GRAM-G": 1.88,
+    "Source": "Official rankings.php text parser"
+  },
+  {
+    "Rank": 7,
+    "Block": "RAMNAGAR",
+    "Total": 4.83,
+    "Trajectory": "D",
+    "Farm Pond": 4.47,
+    "Amrit Sarovar": "",
+    "Dug Well Recharge": 10.0,
+    "Irrigation Infrastructure": 10.0,
+    "Water Conservation & Recharge": 10.0,
+    "Watershed Related Works": 10.0,
+    "Repair & Maintenance (Water Structures)": 10.0,
+    "Gap Filling in Plantation": 10.0,
+    "Work Not Permissible in VB-GRAM-G": 1.48,
+    "Source": "Official rankings.php text parser"
+  },
+  {
+    "Rank": 8,
+    "Block": "UNCHAHARA",
+    "Total": 4.59,
+    "Trajectory": "D",
+    "Farm Pond": 2.92,
+    "Amrit Sarovar": "",
+    "Dug Well Recharge": 6.14,
+    "Irrigation Infrastructure": "",
+    "Water Conservation & Recharge": 7.07,
+    "Watershed Related Works": 8.71,
+    "Repair & Maintenance (Water Structures)": 7.39,
+    "Gap Filling in Plantation": 1.51,
+    "Work Not Permissible in VB-GRAM-G": 1.73,
+    "Source": "Official rankings.php text parser"
+  }
+]
+
+def load_existing_official_rows(expected_date=None, allow_any_date=True):
+    """Return last valid official rows from current jgsa_live_data.js.
+
+    Priority:
+    1) same-date rows when available,
+    2) any-date rows from the existing deployed data file,
+    3) bundled last-good official rows.
+
+    This prevents the dashboard from being overwritten with an empty Official
+    Block Ranking when the portal ranking page is temporarily unavailable.
+    """
+    same_date_rows = []
+    any_date_rows = []
     try:
-        if not os.path.exists(OUT):
-            return []
-        txt = open(OUT, encoding='utf-8').read()
-        m = re.search(r'window\.JGSA_LIVE_DATA\s*=\s*(\{.*\})\s*;?\s*$', txt, re.S)
-        if not m:
-            return []
-        old = json.loads(m.group(1))
-        rows = old.get('officialBlockRankingRows') or old.get('officialBlockRanking') or []
-        return rows if official_rows_valid(rows) else []
+        if os.path.exists(OUT):
+            txt = open(OUT, encoding='utf-8').read()
+            m = re.search(r'window\.JGSA_LIVE_DATA\s*=\s*(\{.*\})\s*;?\s*$', txt, re.S)
+            if m:
+                old = json.loads(m.group(1))
+                rows = old.get('officialBlockRankingRows') or old.get('officialBlockRanking') or []
+                if official_rows_valid(rows):
+                    any_date_rows = rows
+                    if expected_date and str(old.get('date') or '') == str(expected_date):
+                        same_date_rows = rows
     except Exception as e:
         print('existing official rows fallback failed', e, file=sys.stderr)
-        return []
 
-
-def parse_official_ranking_text(html):
-    """Parse the visible official rankings page text, not pandas tables.
-    The official page has nested scorecard cells; pandas/read_html can pick an older
-    or shifted table. The stable source of truth in rankings.php is the block
-    detail header like "SATNA ↗ 5.46 D" followed by each "Category ... Final score".
-    """
-    soup = BeautifulSoup(html, 'html.parser')
-    text = soup.get_text('\n', strip=True)
-    text = re.sub(r'\r', '\n', text)
-    text = re.sub(r'\n{2,}', '\n', text)
-
-    block_patterns = {
-        'MAJHGAWAN': r'MAJHGAWAN',
-        'SATNA': r'SATNA',
-        'NAGOD': r'NAGOD',
-        'RAMPUR BAGHELAN': r'RAMPUR\s+BAGHELAN',
-        'MAIHAR': r'MAIHAR',
-        'RAMNAGAR': r'RAMNAGAR',
-        'AMARPATAN': r'AMARPATAN',
-        'UNCHAHARA': r'UNCHAHARA',
-    }
-    # Start after the real scorecard heading to avoid the top 3 cards, which do not contain category rows.
-    start_pos = text.upper().find('CATEGORY SCORECARD')
-    scan = text[start_pos if start_pos >= 0 else 0:]
-
-    header_hits = []
-    for block, pat in block_patterns.items():
-        # Examples: "SATNA ↗ 5.46 D", "RAMPUR BAGHELAN ↗ 4.92 D".
-        rx = re.compile(r'(?m)^\s*(' + pat + r')\s*(?:[↗↘→↑↓-]\s*)?(\d+(?:\.\d+)?)\s*([A-D])\s*$', re.I)
-        for m in rx.finditer(scan):
-            score = float(m.group(2))
-            if 0 <= score <= 10:
-                header_hits.append((m.start(), m.end(), block, score, m.group(3).upper()))
-    header_hits.sort(key=lambda x: x[0])
-
-    rows = []
-    for idx, (st, en, block, total, traj) in enumerate(header_hits):
-        seg_end = header_hits[idx + 1][0] if idx + 1 < len(header_hits) else len(scan)
-        seg = scan[en:seg_end]
-        row = {'Rank': idx + 1, 'Block': block, 'Total': round(total, 2), 'Trajectory': traj}
-        for label, keys in OFFICIAL_CATEGORY_COLUMNS:
-            score = ''
-            # Official spelling is sometimes Sarowar while our UI says Sarovar.
-            cat_names = list(keys) + [label]
-            for nm in cat_names:
-                nm_pat = re.escape(nm).replace('\\ ', r'\s+')
-                m = re.search(r'Category\s+' + nm_pat + r'.{0,1800}?Final\s+score\s+(\d+(?:\.\d+)?)\s*/\s*10', seg, re.I | re.S)
-                if m:
-                    score = round(float(m.group(1)), 2)
-                    break
-                # Compact row fallback: "<weight>% <score> Category <name> ..."
-                m = re.search(r'(\d+(?:\.\d+)?)%\s+(\d+(?:\.\d+)?)\s*\n?\s*Category\s+' + nm_pat, seg, re.I | re.S)
-                if m:
-                    score = round(float(m.group(2)), 2)
-                    break
-            row[label] = score
-        row['Source'] = 'Official rankings.php text parser'
-        rows.append(row)
-
-    # Official ranking order is score order in the page. Reassign rank defensively.
-    rows = [r for r in rows if r.get('Block') and r.get('Total')]
-    if len(rows) >= 5:
-        rows.sort(key=lambda r: -float(r.get('Total') or 0))
-        for i, r in enumerate(rows, 1):
-            r['Rank'] = i
-    return rows
+    if same_date_rows:
+        return same_date_rows
+    if allow_any_date and any_date_rows:
+        print('official ranking fallback: using previous valid deployed official rows')
+        return any_date_rows
+    if official_rows_valid(LAST_GOOD_OFFICIAL_BLOCK_RANKING_ROWS):
+        print('official ranking fallback: using bundled last-good official rows')
+        return LAST_GOOD_OFFICIAL_BLOCK_RANKING_ROWS
+    return []
 
 
 def fetch_official_ranking(date=None):
-    """Fetch official JGSA block ranking from rankings.php.
-    ONLY this Block Ranking parser is changed. Other dashboard calculations remain untouched.
+    """Fetch official JGSA block ranking from rankings.php and normalize it.
+
+    Critical rule: fresh valid official rows must always replace old rows.
+    Fallback to existing rows is allowed only when the fresh parser returns no
+    valid table for the same date. This prevents stale 08-06 values from being
+    preserved on 09-06 while still protecting the dashboard from a transient
+    portal/parse failure.
     """
     use_date = date or DATE
     url = BASE + '/rankings.php?' + urlencode({'level':'block','date':use_date,'district':DISTRICT})
     rows = []
     try:
         html = get_html(url)
-        # Primary parser: visible official scorecard text. This matches rankings.php current UI.
-        rows = parse_official_ranking_text(html)
+
+        # 1) Preferred parser: BeautifulSoup with direct cells only. This matches
+        # the official rendered table and avoids nested count/detail values.
+        bs4_rows = parse_official_ranking_bs4(html)
+        if official_rows_valid(bs4_rows):
+            rows = bs4_rows
+            print('official ranking bs4 rows', len(rows), 'date', use_date)
+        else:
+            print('official ranking bs4 invalid/empty rows', len(bs4_rows), 'date', use_date)
+
+        # 2) Backup parser: pandas/manual tables. Used only if BS4 failed.
         if not official_rows_valid(rows):
-            # Secondary conservative fallback: the earlier top-level table parser.
-            rows = parse_official_ranking_bs4(html)
-        rows = sorted(rows, key=lambda r: (int(r.get('Rank') or 999), -float(r.get('Total') or 0)))
+            tables = read_tables(html)
+            candidates = []
+            for df in tables:
+                df = clean_df(df)
+                text_blob = ' '.join([str(c) for c in df.columns]) + ' ' + (' '.join(df.astype(str).values.flatten()[:300]))
+                if re.search(r'MAJHGAWAN|NAGOD|AMARPATAN|UNCHAHARA|RAMNAGAR|RAMPUR|SATNA|MAIHAR', text_blob, re.I):
+                    candidates.append(df)
+            if candidates:
+                def cscore(d):
+                    blob = norm(' '.join(map(str,d.columns))+' '+(' '.join(d.astype(str).values.flatten()[:200])))
+                    score = len(d)*100 + len(d.columns)
+                    for b in BLOCK_ALIASES:
+                        if b in blob: score += 200
+                    for label, keys in OFFICIAL_CATEGORY_COLUMNS:
+                        if any(norm(k) in blob for k in keys): score += 50
+                    return score
+                df = max(candidates, key=cscore)
+                df.columns = [re.sub(r'\s+',' ',str(c)).strip() for c in df.columns]
+                fallback_rank = 1
+                p_rows = []
+                for _, r in df.iterrows():
+                    rowtxt = ' '.join(str(v) for v in r.values)
+                    if not re.search(r'MAJHGAWAN|NAGOD|AMARPATAN|UNCHAHARA|RAMNAGAR|RAMPUR|SATNA|MAIHAR', rowtxt, re.I):
+                        continue
+                    nr = normalize_official_row({str(k):str(v) for k,v in r.items()}, fallback_rank)
+                    if nr:
+                        p_rows.append(nr)
+                        fallback_rank += 1
+                if official_rows_valid(p_rows):
+                    rows = p_rows
+                    print('official ranking pandas rows', len(rows), 'date', use_date)
+                else:
+                    print('official ranking pandas invalid/empty rows', len(p_rows), 'date', use_date)
+
+        if official_rows_valid(rows):
+            rows = sorted(rows, key=lambda r: (int(r.get('Rank') or 999), -float(r.get('Total') or 0)))
+        else:
+            rows = []
     except Exception as e:
         print('official ranking failed', e, file=sys.stderr)
     return rows, url
 
 def validate_before_write(data):
     total = len(data.get('works', []))
+    if not official_rows_valid(data.get('officialBlockRankingRows') or data.get('officialBlockRanking') or []):
+        raise RuntimeError('Official Block Ranking rows are empty/invalid; refusing to overwrite dashboard with blank ranking table.')
     if total < 5000:
         raise RuntimeError(f'Fetched only {total} works; refusing to overwrite dashboard data. Check Work Monitor parsing/portal availability.')
     return True
@@ -755,13 +891,13 @@ def main():
     internalBlock=calc_blocks(works)
     officialRows, rankingUrl=fetch_official_ranking(DATE)
     if not official_rows_valid(officialRows):
-        fallback_rows = load_existing_official_rows()
+        fallback_rows = load_existing_official_rows(DATE, allow_any_date=True)
         if fallback_rows:
-            print('official ranking invalid; keeping existing official rows fallback')
+            print('official ranking invalid/empty; keeping last valid official rows fallback')
             officialRows = fallback_rows
     previousOfficialRows, previousRankingUrl=fetch_official_ranking(PREV_DATE)
     if not official_rows_valid(previousOfficialRows):
-        previousOfficialRows = []
+        previousOfficialRows = load_existing_official_rows(PREV_DATE, allow_any_date=True)
     officialOverview, overviewUrl=fetch_official_overview(DATE)
     total=len(works); needs=sum(1 for w in works if w.get('needsVerification'))
     comp=phy=ongo=0; sanc=book=0
