@@ -1,5 +1,5 @@
 window.JGSA_LIVE_DATA = {
-  "generatedAt": "2026-06-10T14:26:56.356367Z",
+  "generatedAt": "2026-06-10T15:50:10.094787Z",
   "date": "2026-06-10",
   "district": "SATNA",
   "sourceUrls": {
@@ -108800,49 +108800,22 @@ window.JGSA_LIVE_DATA = {
       "Rank": 1,
       "Block": "MAJHGAWAN",
       "Total": 5.86,
-      "Trajectory": "D",
-      "Farm Pond": 5.47,
-      "Amrit Sarovar": 1.92,
-      "Dug Well Recharge": 6.63,
-      "Irrigation Infrastructure": 10.0,
-      "Water Conservation & Recharge": 7.89,
-      "Watershed Related Works": 7.76,
-      "Repair & Maintenance (Water Structures)": 10.0,
-      "Gap Filling in Plantation": 1.78,
-      "Work Not Permissible in VB-GRAM-G": 2.17,
-      "Source": "Official rankings.php text parser"
+      "Completed": "",
+      "Started": ""
     },
     {
       "Rank": 2,
       "Block": "SATNA",
       "Total": 5.46,
-      "Trajectory": "D",
-      "Farm Pond": 4.94,
-      "Amrit Sarovar": 1.51,
-      "Dug Well Recharge": 6.33,
-      "Irrigation Infrastructure": 7.05,
-      "Water Conservation & Recharge": 7.39,
-      "Watershed Related Works": 7.35,
-      "Repair & Maintenance (Water Structures)": 5.64,
-      "Gap Filling in Plantation": 0.3,
-      "Work Not Permissible in VB-GRAM-G": 2.89,
-      "Source": "Official rankings.php text parser"
+      "Completed": "",
+      "Started": ""
     },
     {
       "Rank": 3,
       "Block": "NAGOD",
       "Total": 5.35,
-      "Trajectory": "D",
-      "Farm Pond": 4.35,
-      "Amrit Sarovar": 1.0,
-      "Dug Well Recharge": 6.51,
-      "Irrigation Infrastructure": 10.0,
-      "Water Conservation & Recharge": 6.82,
-      "Watershed Related Works": 10.0,
-      "Repair & Maintenance (Water Structures)": 10.0,
-      "Gap Filling in Plantation": 1.86,
-      "Work Not Permissible in VB-GRAM-G": 0.86,
-      "Source": "Official rankings.php text parser"
+      "Completed": "",
+      "Started": ""
     }
   ],
   "weeklyPreviousDate": "2026-06-01",
