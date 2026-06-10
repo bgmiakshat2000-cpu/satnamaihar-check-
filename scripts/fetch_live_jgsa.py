@@ -1,4 +1,4 @@
-import os, re, json, math, sys, datetime
+import os, re, json, math, sys, datetime, time
 from urllib.parse import urlencode
 import requests
 import pandas as pd
@@ -22,7 +22,7 @@ DISTRICT = 'SATNA'
 OUT = os.environ.get('JGSA_OUT', 'jgsa_live_data.js')
 ENG = os.environ.get('ENGNAME_FILE', 'engname.xlsx')
 SESSION = requests.Session()
-SESSION.headers.update({'User-Agent':'Mozilla/5.0 JGSA-Satna-Dashboard/3.0', 'Cache-Control':'no-cache', 'Pragma':'no-cache'})
+SESSION.headers.update({'User-Agent':'Mozilla/5.0 JGSA-Satna-Dashboard/3.0'})
 
 def norm(s):
     return re.sub(r'\s+', ' ', str(s or '').strip()).upper()
@@ -803,30 +803,36 @@ def load_existing_official_rows(expected_date=None, allow_any_date=True):
 def fetch_official_ranking(date=None):
     """Fetch official JGSA block ranking from rankings.php and normalize it.
 
-    Critical rule: fresh valid official rows must always replace old rows.
-    Fallback to existing rows is allowed only when the fresh parser returns no
-    valid table for the same date. This prevents stale 08-06 values from being
-    preserved on 09-06 while still protecting the dashboard from a transient
-    portal/parse failure.
+    Ranking page is sometimes slow/refuses connections from GitHub runners.
+    So we retry patiently with cache-buster URLs before giving up.
     """
     use_date = date or DATE
     url = BASE + '/rankings.php?' + urlencode({'level':'block','date':use_date,'district':DISTRICT})
     rows = []
     try:
         html = ''
-        # Use a cache-buster for the fetch request only. The public sourceUrl remains clean.
-        # Some portal/CDN responses can lag by a few minutes, so retry before giving up.
         last_err = None
-        for attempt in range(1, 4):
+        # Long but safe retry: about 4-5 minutes worst case. This handles the
+        # common JGSA portal issue where rankings.php refuses/slowly serves for
+        # a short period while Work Monitor still works.
+        wait_plan = [5, 8, 12, 15, 20, 25, 30, 35, 40, 45]
+        for attempt, wait_sec in enumerate(wait_plan, start=1):
             try:
                 fetch_url = url + '&_cb=' + datetime.datetime.utcnow().strftime('%Y%m%d%H%M%S') + str(attempt)
-                html = get_html(fetch_url)
-                if html and len(html) > 1000:
+                print(f'official ranking fetch attempt {attempt}/{len(wait_plan)} date {use_date}')
+                r = SESSION.get(fetch_url, timeout=75)
+                r.raise_for_status()
+                html = r.text or ''
+                if len(html) > 1000:
+                    print('official ranking html fetched', len(html), 'bytes', 'date', use_date)
                     break
+                last_err = RuntimeError(f'short/empty official ranking html: {len(html)} bytes')
             except Exception as e:
                 last_err = e
                 print('official ranking fetch retry', attempt, 'failed', e, file=sys.stderr)
-        if not html:
+            if attempt < len(wait_plan):
+                time.sleep(wait_sec)
+        if not html or len(html) <= 1000:
             if last_err:
                 raise last_err
             raise RuntimeError('empty official ranking html')
@@ -906,13 +912,11 @@ def main():
     engineerRanking=calc_engineers(works)
     internalBlock=calc_blocks(works)
     officialRows, rankingUrl=fetch_official_ranking(DATE)
-    # STRICT CURRENT-DATE RULE:
-    # Do NOT silently reuse previous-day Official Block Ranking rows for today's dashboard.
-    # If the portal/parser cannot provide a valid table for DATE, fail the Action before
-    # writing jgsa_live_data.js. This prevents stale scores such as 09-06 values showing
-    # on 10-06 after an otherwise-green workflow run.
+    # Current-date Official Ranking is compulsory. Do not silently show old rows
+    # from a previous date. The retry loop above handles temporary slowness; if
+    # it still fails, fail the Action so Pages keeps the last successful deploy.
     if not official_rows_valid(officialRows):
-        raise RuntimeError(f'Current-date Official Block Ranking not fetched for {DATE}; refusing to deploy stale/blank ranking rows.')
+        raise RuntimeError(f'Current-date Official Block Ranking not fetched for {DATE} after extended retries; refusing to deploy stale/blank ranking rows.')
     previousOfficialRows, previousRankingUrl=fetch_official_ranking(PREV_DATE)
     if not official_rows_valid(previousOfficialRows):
         previousOfficialRows = load_existing_official_rows(PREV_DATE, allow_any_date=True)
