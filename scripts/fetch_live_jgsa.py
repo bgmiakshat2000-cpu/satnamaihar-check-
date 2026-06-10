@@ -22,7 +22,7 @@ DISTRICT = 'SATNA'
 OUT = os.environ.get('JGSA_OUT', 'jgsa_live_data.js')
 ENG = os.environ.get('ENGNAME_FILE', 'engname.xlsx')
 SESSION = requests.Session()
-SESSION.headers.update({'User-Agent':'Mozilla/5.0 JGSA-Satna-Dashboard/3.0'})
+SESSION.headers.update({'User-Agent':'Mozilla/5.0 JGSA-Satna-Dashboard/3.0', 'Cache-Control':'no-cache', 'Pragma':'no-cache'})
 
 def norm(s):
     return re.sub(r'\s+', ' ', str(s or '').strip()).upper()
@@ -813,7 +813,23 @@ def fetch_official_ranking(date=None):
     url = BASE + '/rankings.php?' + urlencode({'level':'block','date':use_date,'district':DISTRICT})
     rows = []
     try:
-        html = get_html(url)
+        html = ''
+        # Use a cache-buster for the fetch request only. The public sourceUrl remains clean.
+        # Some portal/CDN responses can lag by a few minutes, so retry before giving up.
+        last_err = None
+        for attempt in range(1, 4):
+            try:
+                fetch_url = url + '&_cb=' + datetime.datetime.utcnow().strftime('%Y%m%d%H%M%S') + str(attempt)
+                html = get_html(fetch_url)
+                if html and len(html) > 1000:
+                    break
+            except Exception as e:
+                last_err = e
+                print('official ranking fetch retry', attempt, 'failed', e, file=sys.stderr)
+        if not html:
+            if last_err:
+                raise last_err
+            raise RuntimeError('empty official ranking html')
 
         # 1) Preferred parser: BeautifulSoup with direct cells only. This matches
         # the official rendered table and avoids nested count/detail values.
@@ -890,11 +906,13 @@ def main():
     engineerRanking=calc_engineers(works)
     internalBlock=calc_blocks(works)
     officialRows, rankingUrl=fetch_official_ranking(DATE)
+    # STRICT CURRENT-DATE RULE:
+    # Do NOT silently reuse previous-day Official Block Ranking rows for today's dashboard.
+    # If the portal/parser cannot provide a valid table for DATE, fail the Action before
+    # writing jgsa_live_data.js. This prevents stale scores such as 09-06 values showing
+    # on 10-06 after an otherwise-green workflow run.
     if not official_rows_valid(officialRows):
-        fallback_rows = load_existing_official_rows(DATE, allow_any_date=True)
-        if fallback_rows:
-            print('official ranking invalid/empty; keeping last valid official rows fallback')
-            officialRows = fallback_rows
+        raise RuntimeError(f'Current-date Official Block Ranking not fetched for {DATE}; refusing to deploy stale/blank ranking rows.')
     previousOfficialRows, previousRankingUrl=fetch_official_ranking(PREV_DATE)
     if not official_rows_valid(previousOfficialRows):
         previousOfficialRows = load_existing_official_rows(PREV_DATE, allow_any_date=True)
