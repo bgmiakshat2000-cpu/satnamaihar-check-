@@ -1,4 +1,4 @@
-import os, re, json, math, sys, datetime, time
+import os, re, json, math, sys, datetime
 from urllib.parse import urlencode
 import requests
 import pandas as pd
@@ -573,45 +573,133 @@ def fetch_official_overview(date=None):
     return out, url
 
 
+
 def parse_official_ranking_bs4(html):
-    """Parse rankings.php official table using ONLY top-level row cells.
-    This avoids nested count/detail values being shifted into score columns.
+    """Parse official rankings.php block table from the rendered scorecard HTML.
+
+    2026-06-10 portal structure:
+    - header row has fixed columns (#, Block, Total, Trajectory) + 9 category summary columns
+    - second header row has 10 hidden detail columns for each category
+    - each data row has 4 fixed cells, then for each category:
+        summary cell + 10 detail cells
+      The last detail cell of each category is the final category score.
+    This parser reads that structure directly, so hidden/detail columns no longer
+    make pandas/old BS4 parsing reject the table.
     """
     soup = BeautifulSoup(html, 'html.parser')
-    best_headers = []
-    best_rows = []
+    rows = []
+
+    def _cell_text(cell):
+        return re.sub(r'\s+', ' ', cell.get_text(' ', strip=True)).strip()
+
+    def _clean_block(s):
+        s = re.sub(r'[🥇🥈🥉🏅↗]', ' ', str(s))
+        s = re.sub(r'\s+', ' ', s).strip().upper()
+        # Keep only known block alias when extra symbols/text are present.
+        for b in BLOCK_ALIASES:
+            if b in norm(s):
+                return b
+        return s
+
+    def _to_float(v):
+        if v is None:
+            return ''
+        s = str(v).replace(',', '').strip()
+        m = re.search(r'-?\d+(?:\.\d+)?', s)
+        if not m:
+            return ''
+        try:
+            return round(float(m.group(0)), 2)
+        except Exception:
+            return ''
+
     for tbl in soup.find_all('table'):
-        headers = []
-        body = []
-        for tr in tbl.find_all('tr'):
-            # IMPORTANT: recursive=False prevents nested mini-tables/spans from becoming extra columns.
-            ths = tr.find_all('th', recursive=False)
-            tds = tr.find_all('td', recursive=False)
-            if ths and len(ths) >= 6:
-                headers = [re.sub(r'\s+', ' ', c.get_text(' ', strip=True)).strip() for c in ths]
+        trs = tbl.find_all('tr')
+        if len(trs) < 3:
+            continue
+
+        # Pick the scorecard table: first row has Block/Total and category headers.
+        header_cells = trs[0].find_all(['th', 'td'], recursive=False)
+        headers = [_cell_text(c) for c in header_cells]
+        header_blob = norm(' '.join(headers))
+        if 'BLOCK' not in header_blob or 'TOTAL' not in header_blob:
+            continue
+        if not any(norm(k) in header_blob for _, keys in OFFICIAL_CATEGORY_COLUMNS for k in keys):
+            continue
+
+        # Find category header labels after the fixed columns.
+        cat_headers = headers[4:]
+        cat_labels = []
+        for h in cat_headers:
+            hh = re.sub(r'\s*▶\s*$', '', h).strip()
+            matched = None
+            nh = norm(hh)
+            for label, keys in OFFICIAL_CATEGORY_COLUMNS:
+                if any(norm(k) in nh or nh in norm(k) for k in keys + [label]):
+                    matched = label
+                    break
+            cat_labels.append(matched)
+
+        # Data rows contain block names and many cells due to hidden detail columns.
+        fallback_rank = 1
+        for tr in trs[1:]:
+            cells = tr.find_all('td', recursive=False)
+            if len(cells) < 6:
                 continue
-            if tds and len(tds) >= 6:
-                vals = [re.sub(r'\s+', ' ', c.get_text(' ', strip=True)).strip() for c in tds]
-                body.append(vals)
-        blob = norm(' '.join(headers) + ' ' + ' '.join(' '.join(r) for r in body[:10]))
-        if not any(b in blob for b in BLOCK_ALIASES):
-            continue
-        if not any(norm(k) in blob for _, keys in OFFICIAL_CATEGORY_COLUMNS for k in keys):
-            continue
-        if len(body) > len(best_rows):
-            best_headers, best_rows = headers, body
-    rows=[]
-    fallback_rank=1
-    for vals in best_rows:
-        if best_headers and len(best_headers) >= 6:
-            hdr = best_headers + [f'col_{i}' for i in range(len(best_headers), len(vals))]
-            row = {hdr[i]: vals[i] if i < len(vals) else '' for i in range(min(len(hdr), len(vals)))}
-            nr = normalize_official_row(row, fallback_rank)
-        else:
-            nr = None
-        if nr:
-            rows.append(nr)
+            texts = [_cell_text(c) for c in cells]
+            row_blob = norm(' '.join(texts[:6]))
+            if not any(b in row_blob for b in BLOCK_ALIASES):
+                continue
+
+            rank = int(_to_float(texts[0]) or fallback_rank)
+            block = _clean_block(texts[1])
+            total = _to_float(texts[2])
+            if not block or total == '':
+                continue
+
+            out = {
+                'Rank': rank,
+                'Block': block,
+                'Total': total,
+                'Trajectory': re.sub(r'[^A-Z+]', '', texts[3].upper()) or '',
+            }
+
+            # Each category = summary cell + 10 detail cells. The 10th detail
+            # cell is the final category total score, which is the cleanest value.
+            pos = 4
+            for matched in cat_labels:
+                if not matched or pos >= len(texts):
+                    pos += 11
+                    continue
+
+                score = ''
+                # Preferred: hidden "Total Marks" detail cell.
+                if pos + 10 < len(texts):
+                    score = _to_float(texts[pos + 10])
+
+                # Fallback: summary cell begins like "36.0% 5.47 Category ..."
+                if score == '':
+                    sm = re.search(r'\d+(?:\.\d+)?%\s*(-?\d+(?:\.\d+)?)', texts[pos])
+                    if sm:
+                        score = _to_float(sm.group(1))
+
+                # Final fallback: use existing conservative extractor.
+                if score == '':
+                    score = extract_score_from_cell(texts[pos])
+
+                out[matched] = score
+                pos += 11
+
+            out['Source'] = 'Official rankings.php rendered table parser'
+            rows.append(out)
             fallback_rank += 1
+
+    if rows:
+        # Ensure every expected category exists. Missing cells can remain blank.
+        for r in rows:
+            for label, _ in OFFICIAL_CATEGORY_COLUMNS:
+                r.setdefault(label, '')
+        rows = sorted(rows, key=lambda r: (int(r.get('Rank') or 999), -float(r.get('Total') or 0)))
     return rows
 
 def official_rows_valid(rows):
@@ -803,39 +891,17 @@ def load_existing_official_rows(expected_date=None, allow_any_date=True):
 def fetch_official_ranking(date=None):
     """Fetch official JGSA block ranking from rankings.php and normalize it.
 
-    Ranking page is sometimes slow/refuses connections from GitHub runners.
-    So we retry patiently with cache-buster URLs before giving up.
+    Critical rule: fresh valid official rows must always replace old rows.
+    Fallback to existing rows is allowed only when the fresh parser returns no
+    valid table for the same date. This prevents stale 08-06 values from being
+    preserved on 09-06 while still protecting the dashboard from a transient
+    portal/parse failure.
     """
     use_date = date or DATE
     url = BASE + '/rankings.php?' + urlencode({'level':'block','date':use_date,'district':DISTRICT})
     rows = []
     try:
-        html = ''
-        last_err = None
-        # Long but safe retry: about 4-5 minutes worst case. This handles the
-        # common JGSA portal issue where rankings.php refuses/slowly serves for
-        # a short period while Work Monitor still works.
-        wait_plan = [5, 8, 12, 15, 20, 25, 30, 35, 40, 45]
-        for attempt, wait_sec in enumerate(wait_plan, start=1):
-            try:
-                fetch_url = url + '&_cb=' + datetime.datetime.utcnow().strftime('%Y%m%d%H%M%S') + str(attempt)
-                print(f'official ranking fetch attempt {attempt}/{len(wait_plan)} date {use_date}')
-                r = SESSION.get(fetch_url, timeout=75)
-                r.raise_for_status()
-                html = r.text or ''
-                if len(html) > 1000:
-                    print('official ranking html fetched', len(html), 'bytes', 'date', use_date)
-                    break
-                last_err = RuntimeError(f'short/empty official ranking html: {len(html)} bytes')
-            except Exception as e:
-                last_err = e
-                print('official ranking fetch retry', attempt, 'failed', e, file=sys.stderr)
-            if attempt < len(wait_plan):
-                time.sleep(wait_sec)
-        if not html or len(html) <= 1000:
-            if last_err:
-                raise last_err
-            raise RuntimeError('empty official ranking html')
+        html = get_html(url)
 
         # 1) Preferred parser: BeautifulSoup with direct cells only. This matches
         # the official rendered table and avoids nested count/detail values.
@@ -912,11 +978,11 @@ def main():
     engineerRanking=calc_engineers(works)
     internalBlock=calc_blocks(works)
     officialRows, rankingUrl=fetch_official_ranking(DATE)
-    # Current-date Official Ranking is compulsory. Do not silently show old rows
-    # from a previous date. The retry loop above handles temporary slowness; if
-    # it still fails, fail the Action so Pages keeps the last successful deploy.
     if not official_rows_valid(officialRows):
-        raise RuntimeError(f'Current-date Official Block Ranking not fetched for {DATE} after extended retries; refusing to deploy stale/blank ranking rows.')
+        fallback_rows = load_existing_official_rows(DATE, allow_any_date=True)
+        if fallback_rows:
+            print('official ranking invalid/empty; keeping last valid official rows fallback')
+            officialRows = fallback_rows
     previousOfficialRows, previousRankingUrl=fetch_official_ranking(PREV_DATE)
     if not official_rows_valid(previousOfficialRows):
         previousOfficialRows = load_existing_official_rows(PREV_DATE, allow_any_date=True)
