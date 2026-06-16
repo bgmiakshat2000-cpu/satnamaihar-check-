@@ -6,6 +6,32 @@ from bs4 import BeautifulSoup
 
 BASE = 'https://jgsa.nregsmp.org'
 BLOCKS = ['AMARPATAN','MAIHAR','MAJHGAWAN','NAGOD','RAMNAGAR','RAMPUR BAGHELAN','SATNA','UNCHAHARA']
+
+# Business rule: Gap Filling in Plantation works are valid only up to FY 2021-2022.
+# Any Gap Filling in Plantation work from FY 2022-2023 onward is excluded from dashboard data.
+GAP_FILLING_MAX_FY_START = 2021
+
+def fy_start_year(fin_year):
+    m = re.search(r'(20\d{2})\s*-\s*(20\d{2})', str(fin_year or ''))
+    return int(m.group(1)) if m else None
+
+def is_gap_filling_after_allowed_fy(work):
+    wt = norm(work.get('workType') or '')
+    if 'GAP FILLING' not in wt or 'PLANTATION' not in wt:
+        return False
+    y = fy_start_year(work.get('finYear'))
+    # If the FY is missing/unparseable, keep it rather than dropping uncertain legacy data.
+    return y is not None and y > GAP_FILLING_MAX_FY_START
+
+def filter_gap_filling_after_allowed_fy(works):
+    kept, excluded = [], []
+    for w in works:
+        if is_gap_filling_after_allowed_fy(w):
+            excluded.append(w)
+        else:
+            kept.append(w)
+    return kept, excluded
+
 DISTRICT_GROUPS = {
     'Satna': {'MAJHGAWAN','NAGOD','RAMPUR BAGHELAN','SATNA','UNCHAHARA'},
     'Maihar': {'AMARPATAN','RAMNAGAR','MAIHAR'}
@@ -574,132 +600,154 @@ def fetch_official_overview(date=None):
 
 
 
-def parse_official_ranking_bs4(html):
-    """Parse official rankings.php block table from the rendered scorecard HTML.
+def parse_official_ranking_text_rows(html):
+    """Robust official rankings.php parser.
 
-    2026-06-10 portal structure:
-    - header row has fixed columns (#, Block, Total, Trajectory) + 9 category summary columns
-    - second header row has 10 hidden detail columns for each category
-    - each data row has 4 fixed cells, then for each category:
-        summary cell + 10 detail cells
-      The last detail cell of each category is the final category score.
-    This parser reads that structure directly, so hidden/detail columns no longer
-    make pandas/old BS4 parsing reject the table.
+    Uses each table row's full text and extracts the official "Final score X / 10"
+    inside each category cell. This avoids both failure modes we saw:
+    1) nested count columns shifting into category score columns, and
+    2) stale old rows being preserved when the table layout changes.
+
+    This is date-agnostic: whatever DATE is requested from rankings.php is parsed fresh.
     """
     soup = BeautifulSoup(html, 'html.parser')
     rows = []
+    seen = set()
 
-    def _cell_text(cell):
-        return re.sub(r'\s+', ' ', cell.get_text(' ', strip=True)).strip()
+    category_patterns = [
+        ('Farm Pond', r'Farm\s+Pond'),
+        ('Amrit Sarovar', r'Amrit\s+Sarow?ar'),
+        ('Dug Well Recharge', r'Dug\s+Well\s+Recharge'),
+        ('Irrigation Infrastructure', r'Irrigation\s+infrastructure'),
+        ('Water Conservation & Recharge', r'Water\s+conservation\s*&\s*recharge'),
+        ('Watershed Related Works', r'Watershed\s+Related\s+Works'),
+        ('Repair & Maintenance (Water Structures)', r'Repair\s*&\s*Maintenance\s*\(\s*Water\s+Structures\s*\)'),
+        ('Gap Filling in Plantation', r'Gap\s+Filling\s+in\s+Plantation'),
+        ('Work Not Permissible in VB-GRAM-G', r'Work\s+Not\s+Permissible\s+in\s+VB-GRAM-G'),
+    ]
 
-    def _clean_block(s):
-        s = re.sub(r'[🥇🥈🥉🏅↗]', ' ', str(s))
-        s = re.sub(r'\s+', ' ', s).strip().upper()
-        # Keep only known block alias when extra symbols/text are present.
+    for tr in soup.find_all('tr'):
+        rowtxt = re.sub(r'\s+', ' ', tr.get_text(' ', strip=True)).strip()
+        if not rowtxt or 'Final score' not in rowtxt:
+            continue
+
+        block = ''
         for b in BLOCK_ALIASES:
-            if b in norm(s):
-                return b
-        return s
-
-    def _to_float(v):
-        if v is None:
-            return ''
-        s = str(v).replace(',', '').strip()
-        m = re.search(r'-?\d+(?:\.\d+)?', s)
-        if not m:
-            return ''
-        try:
-            return round(float(m.group(0)), 2)
-        except Exception:
-            return ''
-
-    for tbl in soup.find_all('table'):
-        trs = tbl.find_all('tr')
-        if len(trs) < 3:
+            if re.search(r'\b' + re.escape(b) + r'\b', rowtxt, re.I):
+                block = 'RAMPUR BAGHELAN' if b == 'RAMPUR' else b
+                break
+        if not block or block in seen:
             continue
 
-        # Pick the scorecard table: first row has Block/Total and category headers.
-        header_cells = trs[0].find_all(['th', 'td'], recursive=False)
-        headers = [_cell_text(c) for c in header_cells]
-        header_blob = norm(' '.join(headers))
-        if 'BLOCK' not in header_blob or 'TOTAL' not in header_blob:
-            continue
-        if not any(norm(k) in header_blob for _, keys in OFFICIAL_CATEGORY_COLUMNS for k in keys):
+        # Require that this is a real ranking row, not a legend/formula block.
+        if sum(1 for _, pat in category_patterns if re.search(r'Category\s+' + pat, rowtxt, re.I)) < 3:
             continue
 
-        # Find category header labels after the fixed columns.
-        cat_headers = headers[4:]
-        cat_labels = []
-        for h in cat_headers:
-            hh = re.sub(r'\s*▶\s*$', '', h).strip()
-            matched = None
-            nh = norm(hh)
-            for label, keys in OFFICIAL_CATEGORY_COLUMNS:
-                if any(norm(k) in nh or nh in norm(k) for k in keys + [label]):
-                    matched = label
-                    break
-            cat_labels.append(matched)
+        cells = [re.sub(r'\s+', ' ', td.get_text(' ', strip=True)).strip()
+                 for td in tr.find_all('td', recursive=False)]
 
-        # Data rows contain block names and many cells due to hidden detail columns.
-        fallback_rank = 1
-        for tr in trs[1:]:
-            cells = tr.find_all('td', recursive=False)
-            if len(cells) < 6:
-                continue
-            texts = [_cell_text(c) for c in cells]
-            row_blob = norm(' '.join(texts[:6]))
-            if not any(b in row_blob for b in BLOCK_ALIASES):
-                continue
+        # Rank: first small integer cell if present, otherwise row order.
+        rank = len(rows) + 1
+        if cells:
+            r0 = num(cells[0])
+            if r0 and 1 <= r0 <= 99:
+                rank = int(r0)
 
-            rank = int(_to_float(texts[0]) or fallback_rank)
-            block = _clean_block(texts[1])
-            total = _to_float(texts[2])
-            if not block or total == '':
-                continue
+        # Total score: prefer the numeric cell immediately after the block cell.
+        total = 0.0
+        for i, c in enumerate(cells):
+            if re.search(r'\b' + re.escape(block) + r'\b', norm(c)):
+                if i + 1 < len(cells):
+                    t = num(cells[i + 1])
+                    if 0 <= t <= 10:
+                        total = t
+                break
+        if not total:
+            # Fallback: first 0-10 decimal after block name in row text.
+            m = re.search(re.escape(block) + r'\s*(?:↗|↘|→)?\s*(\d+(?:\.\d+)?)', rowtxt, re.I)
+            if m:
+                total = float(m.group(1))
+        if not total or total > 10:
+            continue
 
-            out = {
-                'Rank': rank,
-                'Block': block,
-                'Total': total,
-                'Trajectory': re.sub(r'[^A-Z+]', '', texts[3].upper()) or '',
-            }
+        # Trajectory grade: direct cell after total, or first A/B/C/D after total.
+        traj = 'D'
+        for i, c in enumerate(cells):
+            if re.search(r'\b' + re.escape(block) + r'\b', norm(c)):
+                if i + 2 < len(cells):
+                    m = re.search(r'\b([ABCD])\b', str(cells[i + 2]).upper())
+                    if m:
+                        traj = m.group(1)
+                break
 
-            # Each category = summary cell + 10 detail cells. The 10th detail
-            # cell is the final category total score, which is the cleanest value.
-            pos = 4
-            for matched in cat_labels:
-                if not matched or pos >= len(texts):
-                    pos += 11
-                    continue
+        out = {
+            'Rank': rank,
+            'Block': block,
+            'Total': round(float(total), 2),
+            'Trajectory': traj,
+        }
 
-                score = ''
-                # Preferred: hidden "Total Marks" detail cell.
-                if pos + 10 < len(texts):
-                    score = _to_float(texts[pos + 10])
+        for label, pat in category_patterns:
+            # Match from "Category <name>" until its own final score.
+            m = re.search(
+                r'Category\s+' + pat + r'.{0,1200}?Final\s+score\s+(-?\d+(?:\.\d+)?)\s*/\s*10',
+                rowtxt, re.I
+            )
+            if not m:
+                # Some cells start with "weight% score Category <name> ..." and still have final score later.
+                m = re.search(
+                    pat + r'.{0,1200}?Final\s+score\s+(-?\d+(?:\.\d+)?)\s*/\s*10',
+                    rowtxt, re.I
+                )
+            out[label] = round(float(m.group(1)), 2) if m else ''
 
-                # Fallback: summary cell begins like "36.0% 5.47 Category ..."
-                if score == '':
-                    sm = re.search(r'\d+(?:\.\d+)?%\s*(-?\d+(?:\.\d+)?)', texts[pos])
-                    if sm:
-                        score = _to_float(sm.group(1))
-
-                # Final fallback: use existing conservative extractor.
-                if score == '':
-                    score = extract_score_from_cell(texts[pos])
-
-                out[matched] = score
-                pos += 11
-
-            out['Source'] = 'Official rankings.php rendered table parser'
-            rows.append(out)
-            fallback_rank += 1
+        out['Source'] = 'Official rankings.php text-row parser'
+        rows.append(out)
+        seen.add(block)
 
     if rows:
-        # Ensure every expected category exists. Missing cells can remain blank.
-        for r in rows:
-            for label, _ in OFFICIAL_CATEGORY_COLUMNS:
-                r.setdefault(label, '')
-        rows = sorted(rows, key=lambda r: (int(r.get('Rank') or 999), -float(r.get('Total') or 0)))
+        rows = sorted(rows, key=lambda r: int(r.get('Rank') or 999))
+    return rows
+
+def parse_official_ranking_bs4(html):
+    """Parse rankings.php official table using ONLY top-level row cells.
+    This avoids nested count/detail values being shifted into score columns.
+    """
+    soup = BeautifulSoup(html, 'html.parser')
+    best_headers = []
+    best_rows = []
+    for tbl in soup.find_all('table'):
+        headers = []
+        body = []
+        for tr in tbl.find_all('tr'):
+            # IMPORTANT: recursive=False prevents nested mini-tables/spans from becoming extra columns.
+            ths = tr.find_all('th', recursive=False)
+            tds = tr.find_all('td', recursive=False)
+            if ths and len(ths) >= 6:
+                headers = [re.sub(r'\s+', ' ', c.get_text(' ', strip=True)).strip() for c in ths]
+                continue
+            if tds and len(tds) >= 6:
+                vals = [re.sub(r'\s+', ' ', c.get_text(' ', strip=True)).strip() for c in tds]
+                body.append(vals)
+        blob = norm(' '.join(headers) + ' ' + ' '.join(' '.join(r) for r in body[:10]))
+        if not any(b in blob for b in BLOCK_ALIASES):
+            continue
+        if not any(norm(k) in blob for _, keys in OFFICIAL_CATEGORY_COLUMNS for k in keys):
+            continue
+        if len(body) > len(best_rows):
+            best_headers, best_rows = headers, body
+    rows=[]
+    fallback_rank=1
+    for vals in best_rows:
+        if best_headers and len(best_headers) >= 6:
+            hdr = best_headers + [f'col_{i}' for i in range(len(best_headers), len(vals))]
+            row = {hdr[i]: vals[i] if i < len(vals) else '' for i in range(min(len(hdr), len(vals)))}
+            nr = normalize_official_row(row, fallback_rank)
+        else:
+            nr = None
+        if nr:
+            rows.append(nr)
+            fallback_rank += 1
     return rows
 
 def official_rows_valid(rows):
@@ -903,16 +951,25 @@ def fetch_official_ranking(date=None):
     try:
         html = get_html(url)
 
-        # 1) Preferred parser: BeautifulSoup with direct cells only. This matches
-        # the official rendered table and avoids nested count/detail values.
-        bs4_rows = parse_official_ranking_bs4(html)
-        if official_rows_valid(bs4_rows):
-            rows = bs4_rows
-            print('official ranking bs4 rows', len(rows), 'date', use_date)
+        # 1) Preferred parser: full row text + "Final score X / 10".
+        # This is the most stable representation of the official scorecard.
+        text_rows = parse_official_ranking_text_rows(html)
+        if official_rows_valid(text_rows):
+            rows = text_rows
+            print('official ranking text rows', len(rows), 'date', use_date)
         else:
-            print('official ranking bs4 invalid/empty rows', len(bs4_rows), 'date', use_date)
+            print('official ranking text parser invalid/empty rows', len(text_rows), 'date', use_date)
 
-        # 2) Backup parser: pandas/manual tables. Used only if BS4 failed.
+        # 2) Backup parser: BeautifulSoup with direct cells only.
+        if not official_rows_valid(rows):
+            bs4_rows = parse_official_ranking_bs4(html)
+            if official_rows_valid(bs4_rows):
+                rows = bs4_rows
+                print('official ranking bs4 rows', len(rows), 'date', use_date)
+            else:
+                print('official ranking bs4 invalid/empty rows', len(bs4_rows), 'date', use_date)
+
+        # 3) Last parser: pandas/manual tables. Used only if both text and BS4 failed.
         if not official_rows_valid(rows):
             tables = read_tables(html)
             candidates = []
@@ -960,13 +1017,16 @@ def validate_before_write(data):
     total = len(data.get('works', []))
     if not official_rows_valid(data.get('officialBlockRankingRows') or data.get('officialBlockRanking') or []):
         raise RuntimeError('Official Block Ranking rows are empty/invalid; refusing to overwrite dashboard with blank ranking table.')
-    if total < 5000:
-        raise RuntimeError(f'Fetched only {total} works; refusing to overwrite dashboard data. Check Work Monitor parsing/portal availability.')
+    if total < 4000:
+        raise RuntimeError(f'Fetched only {total} works after Gap Filling FY filter; refusing to overwrite dashboard data. Check Work Monitor parsing/portal availability.')
     return True
 
 def main():
     engmap=load_eng_map(ENG)
     works, work_urls=fetch_work_monitor()
+    works_before_gap_filter = len(works)
+    works, excluded_gap_filling_after_fy = filter_gap_filling_after_allowed_fy(works)
+    print('gap filling filter: excluded FY 2022-2023 onward', len(excluded_gap_filling_after_fy), 'kept', len(works), 'from', works_before_gap_filter)
     # map engineer exact names, including अति/अति0 suffixes
     unmapped=0
     for w in works:
@@ -978,11 +1038,12 @@ def main():
     engineerRanking=calc_engineers(works)
     internalBlock=calc_blocks(works)
     officialRows, rankingUrl=fetch_official_ranking(DATE)
+    # Do NOT silently use old official ranking rows for today's/current DATE.
+    # If fresh official ranking cannot be parsed, fail the Action so yesterday's
+    # already-deployed data remains visible instead of showing stale scores with
+    # a new timestamp.
     if not official_rows_valid(officialRows):
-        fallback_rows = load_existing_official_rows(DATE, allow_any_date=True)
-        if fallback_rows:
-            print('official ranking invalid/empty; keeping last valid official rows fallback')
-            officialRows = fallback_rows
+        raise RuntimeError(f'Fresh Official Block Ranking could not be parsed for {DATE}; refusing to overwrite with stale rows.')
     previousOfficialRows, previousRankingUrl=fetch_official_ranking(PREV_DATE)
     if not official_rows_valid(previousOfficialRows):
         previousOfficialRows = load_existing_official_rows(PREV_DATE, allow_any_date=True)
@@ -1029,7 +1090,7 @@ def main():
         if summary.get('sanction') and summary.get('booked'):
             summary['bookedPct'] = round((summary['booked']/summary['sanction'])*100,2)
     if not summary.get('abhiyanProgress'):
-        summary['abhiyanProgress']=summary.get('totalCompleted', comp+phy)
+        summary['abhiyanProgress']=summary.get('physicalCompleted', phy)
     data={'generatedAt':datetime.datetime.utcnow().isoformat()+'Z','date':DATE,'district':DISTRICT,
           'sourceUrls':{'main':overviewUrl, 'officialBlockRanking':rankingUrl, 'weeklyCurrentOfficialBlockRanking':rankingUrl, 'weeklyPreviousOfficialBlockRanking':previousRankingUrl, 'workMonitorByBlock':work_urls},
           'summary':summary,
@@ -1046,7 +1107,7 @@ def main():
           'weeklyPreviousOfficialBlockRanking':previousOfficialRows,
           'weeklyPreviousRankingRows':previousOfficialRows,
           'gradeLegend':{'A':'अच्छा Performance','B':'Progressing','C':'Progress Needed','D':'Critical / Poor Performance'},
-          'notes':['Work data is fetched block-wise to avoid the 2000 row All-Janpad limit.','Engineer mapping comes only from engname.xlsx. JGSA work values come from live JGSA pages.']}
+          'notes':['Work data is fetched block-wise to avoid the 2000 row All-Janpad limit.','Gap Filling in Plantation works after FY 2021-2022 are excluded as per dashboard rule.','Engineer mapping comes only from engname.xlsx. JGSA work values come from live JGSA pages.']}
     validate_before_write(data)
     js='window.JGSA_LIVE_DATA = '+json.dumps(data, ensure_ascii=False, indent=2)+';\n'
     with open(OUT,'w',encoding='utf-8') as f: f.write(js)
