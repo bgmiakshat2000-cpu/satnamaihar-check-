@@ -87926,5 +87926,12 @@ window.JGSA_LIVE_DATA = {
     "Work data is fetched block-wise to avoid the 2000 row All-Janpad limit.",
     "Gap Filling in Plantation works after FY 2021-2022 are excluded as per dashboard rule.",
     "Engineer mapping comes only from engname.xlsx. JGSA work values come from live JGSA pages."
-  ]
+  ],
+  "gapFillingFYRule": {
+    "rule": "Gap Filling in Plantation works only up to FY 2021-2022 are included; FY 2022-2023 onward excluded.",
+    "maxFyStart": 2021,
+    "excludedCount": 0,
+    "beforeWorkCount": 4718,
+    "afterWorkCount": 4718
+  }
 };

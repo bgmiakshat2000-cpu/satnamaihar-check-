@@ -530,6 +530,15 @@ body.login-locked{overflow:hidden}
 }
 </style>
 
+
+<style id="shreni-total-ongoing-columns-css">
+@media print{
+  body.pdf-exporting.pdf-shreni table{font-size:13.5px !important;}
+  body.pdf-exporting.pdf-shreni th{font-size:12.4px !important;}
+  body.pdf-exporting.pdf-shreni th, body.pdf-exporting.pdf-shreni td{padding:5.5px 3.5px !important;}
+}
+</style>
+
 </head><body class="login-locked">
 
 <div id="loginScreen" class="login-screen" role="dialog" aria-modal="true" aria-label="Dashboard Login">
@@ -768,6 +777,20 @@ function normType(t){
   return x;
 }
 if(Array.isArray(D.works)) D.works.forEach(w=>{ w.workType = normType(w.workType); });
+function gapFYStart(w){
+  const y=String((w&&w.finYear)||(w&&w.financialYear)||(w&&w.year)||'');
+  const m=y.match(/(20\d{2})\s*[-–]\s*(20\d{2}|\d{2})/);
+  return m?Number(m[1]):null;
+}
+function dashboardAllowedWork(w){
+  const t=normType(w&&w.workType);
+  if(t==='Gap Filling in Plantation'){
+    const y=gapFYStart(w);
+    return y===null || y<=2021; // Gap Filling: only up to FY 2021-22
+  }
+  return true;
+}
+if(Array.isArray(D.works)) D.works = D.works.filter(dashboardAllowedWork);
 if(Array.isArray(D.engineerRanking)) D.engineerRanking.forEach(e=>{ if(Array.isArray(e.categories)) e.categories.forEach(c=>{ c.category = normType(c.category); }); });
 const works=()=>D.works||[]; const blocks=()=>D.blockRankingInternal||D.blockRanking||[]; const summ=()=>D.summary||{};
 
@@ -971,7 +994,7 @@ function openVerificationBreakdown(name){
 function fblocks(){let q=currentSearch(), arr=calcBlocks(fworks()); return arr.filter(b=>matchSearch(b,q))}
 function fengs(){
 let q=currentSearch();
-let baseWorks=works().filter(w=>passDistrictBlock(w)&&passStatus(w)&&passExp(w)&&matchSearch(w,q));
+let baseWorks=works().filter(w=>passDistrictBlock(w)&&passExp(w)&&matchSearch(w,q));
 let ranked=calcEngineers(baseWorks);
 return ranked.filter(e=>passEngineer({engineer:e.engineer}));
 }
@@ -1004,7 +1027,28 @@ function expBucketCountsForEngineer(engineerName){
 }
 
 function statusFlags(w){let s=String(w.status||'').trim().toUpperCase(); let phys=(s==='PHYSICALLY COMPLETED')||s.includes('PHYSICALLY COMPLETED')||s.includes('PHYCS')||s.includes('भौतिक'); let comp=!phys&&((s==='COMPLETED')||s.includes('COMPLETED')||s==='COMPLETE'||s.includes('पूर्ण')); let ongoing=(s==='ONGOING')||s.includes('ONGOING')||s.includes('प्रगतिरत')||s.includes('IN PROGRESS')||s.includes('चालू'); return {comp,phys,ongoing}}
-function calcCategory(items){let started=items.length; if(!started) return {score:0,partA:0,partB:0,avgExpPct:0,works:0,completedPhy:0,completed:0,physical:0,ongoing:0,sanction:0,booked:0}; let completed=0, physical=0, ongoing=0, completedPhy=0, sanction=0, booked=0, pctSum=0; items.forEach(w=>{let f=statusFlags(w); completed+=f.comp?1:0; physical+=f.phys?1:0; ongoing+=f.ongoing?1:0; completedPhy+=(f.comp||f.phys)?1:0; sanction+=Number(w.sanctionAmount||0); booked+=Number(w.bookedAmount||0); pctSum+=Number(w.expPercent||0)}); let partA=Math.min(5,(completedPhy/started)*5); let partB=sanction?Math.min(5,(booked/sanction)*5):Math.min(5,(pctSum/started)/100*5); return {score:+(partA+partB).toFixed(2),partA:+partA.toFixed(2),partB:+partB.toFixed(2),avgExpPct:+(pctSum/started).toFixed(2),works:started,completedPhy,completed,physical,ongoing,sanction:+sanction.toFixed(2),booked:+booked.toFixed(2)} }
+function calcCategory(items){
+  let started=items.length;
+  if(!started) return {score:0,partA:0,partB:0,avgExpPct:0,works:0,completedPhy:0,completed:0,physical:0,ongoing:0,sanction:0,booked:0,ongoingSanction:0,ongoingBooked:0};
+  let completed=0, physical=0, ongoing=0, completedPhy=0, sanction=0, booked=0, ongoingSanction=0, ongoingBooked=0, pctSum=0;
+  items.forEach(w=>{
+    let f=statusFlags(w);
+    completed+=f.comp?1:0;
+    physical+=f.phys?1:0;
+    ongoing+=f.ongoing?1:0;
+    completedPhy+=(f.comp||f.phys)?1:0;
+    sanction+=Number(w.sanctionAmount||0);
+    booked+=Number(w.bookedAmount||0);
+    if(f.ongoing){
+      ongoingSanction+=Number(w.sanctionAmount||0);
+      ongoingBooked+=Number(w.bookedAmount||0);
+    }
+    pctSum+=Number(w.expPercent||0);
+  });
+  let partA=Math.min(5,(completedPhy/started)*5);
+  let partB=calcPartBOfficial(started,completed,physical,ongoing,ongoingBooked,ongoingSanction);
+  return {score:+(partA+partB).toFixed(2),partA:+partA.toFixed(2),partB:+partB.toFixed(2),avgExpPct:+(pctSum/started).toFixed(2),works:started,completedPhy,completed,physical,ongoing,sanction:+sanction.toFixed(2),booked:+booked.toFixed(2),ongoingSanction:+ongoingSanction.toFixed(2),ongoingBooked:+ongoingBooked.toFixed(2)}
+}
 function buildCategoryBreakdown(items){let totalSanction=items.reduce((a,w)=>a+Number(w.sanctionAmount||0),0); let by={}; items.forEach(w=>{let k=normType(w.workType)||'Uncategorised'; (by[k]||(by[k]=[])).push(w)}); let out=[]; Object.entries(by).forEach(([category,rows])=>{let c=calcCategory(rows); let weight=totalSanction?(c.sanction/totalSanction)*100:(items.length?c.works/items.length*100:0); out.push({...c,category,weight:+weight.toFixed(2),weighted:+((weight/100)*c.score).toFixed(4),grade:grade(c.score)})}); return out.sort((a,b)=>b.weight-a.weight)}
 function calcEngineers(items){let groups={}; items.forEach(w=>{let e=w.engineer||'Unmapped'; (groups[e]||(groups[e]=[])).push(w)}); let out=[]; Object.entries(groups).forEach(([engineer,rows])=>{let cats=buildCategoryBreakdown(rows); let score=+(cats.reduce((a,c)=>a+c.weight/100*c.score,0)).toFixed(2); let g=grade(score); let sanction=rows.reduce((a,w)=>a+Number(w.sanctionAmount||0),0); let booked=rows.reduce((a,w)=>a+Number(w.bookedAmount||0),0); let flags=rows.map(statusFlags); let completed=flags.filter(x=>x.comp).length; let physical=flags.filter(x=>x.phys).length; let ongoing=flags.filter(x=>x.ongoing).length; let gp=new Set(rows.map(w=>w.panchayat).filter(Boolean)).size; let blocks=[...new Set(rows.map(w=>String(w.block||'').toUpperCase()).filter(Boolean))].join(', '); out.push({engineer,janpad:blocks,works:rows.length,completed,physicalCompleted:physical,ongoing,needsVerification:rows.filter(w=>w.needsVerification).length,score,grade:g,gradeText:gradeText(g),avgBookedPct:sanction?booked/sanction*100:0,sanction,booked,categories:cats,gpCount:gp})}); out.sort((a,b)=>b.score-a.score || a.needsVerification-b.needsVerification || b.works-a.works); out.forEach((x,i)=>x.rank=i+1); let byJan={}; out.forEach(x=>{let primary=String(x.janpad||'').split(',')[0].trim()||'UNKNOWN'; (byJan[primary]||(byJan[primary]=[])).push(x); x.primaryJanpad=primary}); Object.values(byJan).forEach(arr=>arr.sort((a,b)=>b.score-a.score || a.needsVerification-b.needsVerification || b.works-a.works).forEach((x,i)=>x.janpadRank=i+1)); return out}
 function calcBlocks(items){let groups={}; items.forEach(w=>{let b=String(w.block||'Unknown').toUpperCase(); (groups[b]||(groups[b]=[])).push(w)}); let out=[]; Object.entries(groups).forEach(([block,rows])=>{let cats=buildCategoryBreakdown(rows); let score=+(cats.reduce((a,c)=>a+c.weight/100*c.score,0)).toFixed(2); let g=grade(score); let sanction=rows.reduce((a,w)=>a+Number(w.sanctionAmount||0),0); let booked=rows.reduce((a,w)=>a+Number(w.bookedAmount||0),0); let flags=rows.map(statusFlags); out.push({block,works:rows.length,completed:flags.filter(x=>x.comp).length,physicalCompleted:flags.filter(x=>x.phys).length,ongoing:flags.filter(x=>x.ongoing).length,needsVerification:rows.filter(w=>w.needsVerification).length,score,grade:g,gradeText:gradeText(g),avgBookedPct:sanction?booked/sanction*100:0,sanction,booked,categories:cats,gpCount:new Set(rows.map(w=>w.panchayat).filter(Boolean)).size})}); out.sort((a,b)=>b.score-a.score); out.forEach((x,i)=>x.rank=i+1); return out}
@@ -1127,6 +1171,14 @@ function engineerTable(rows){return table(['#','उपयंत्री','Janpa
 function cap5(n){return Math.max(0,Math.min(5,Number(n||0)));}
 function calcPartAFromCounts(completed,physical,works){return cap5(works?((Number(completed||0)+Number(physical||0))/Number(works||0))*5:0);}
 function calcPartBFromMoney(booked,sanction){return cap5(sanction?(Number(booked||0)/Number(sanction||0))*5:0);}
+function calcPartBOfficial(totalWorks,completed,physical,ongoingWorks,ongoingBooked,ongoingSanction){
+  totalWorks=Number(totalWorks||0); completed=Number(completed||0); physical=Number(physical||0);
+  ongoingWorks=Number(ongoingWorks||0); ongoingBooked=Number(ongoingBooked||0); ongoingSanction=Number(ongoingSanction||0);
+  if(!totalWorks) return 0;
+  if(ongoingWorks>0) return cap5(ongoingSanction?(ongoingBooked/ongoingSanction)*5:0);
+  if((completed+physical)>=totalWorks) return 5;
+  return 0;
+}
 function catForEngineer(e,cat){return (e.categories||[]).find(c=>normType(c.category)===cat) || {category:cat,score:0,works:0,completed:0,physical:0,ongoing:0,completedPhy:0,sanction:0,booked:0,partA:0,partB:0,weight:0,avgExpPct:0};}
 function engineerScorecard(){
   let rows=fengs();
@@ -1148,18 +1200,22 @@ function engineerScorecard(){
 
 function shreniDetailRows(){
   const q=currentSearch();
-  const base=works().filter(w=>passDistrictBlock(w)&&passEngineer(w)&&passStatus(w)&&passExp(w)&&matchSearch(w,q));
-  const groups={};
+  const statusSelected=!!currentStatus();
+  const baseAll=works().filter(w=>passDistrictBlock(w)&&passEngineer(w)&&passExp(w)&&matchSearch(w,q));
+  const baseDisplay=baseAll.filter(w=>passStatus(w));
+  const groupsAll={};
+  const groupsDisplay={};
   const engineers={};
-  base.forEach(w=>{
+
+  baseAll.forEach(w=>{
     const engineer=String(w.engineer||'Unmapped');
     engineers[engineer]||(engineers[engineer]={engineer,janpads:new Set(),gps:new Set()});
     engineers[engineer].janpads.add(String(w.block||'').toUpperCase());
     if(w.panchayat) engineers[engineer].gps.add(String(w.panchayat));
     const category=normType(w.workType)||'Uncategorised';
     const key=engineer+'||'+category;
-    if(!groups[key]) groups[key]={engineer,category,janpads:new Set(),gps:new Set(),works:0,completed:0,physical:0,ongoing:0,needs:0,sanction:0,booked:0,remaining:0};
-    const g=groups[key], f=statusFlags(w);
+    if(!groupsAll[key]) groupsAll[key]={engineer,category,janpads:new Set(),gps:new Set(),works:0,completed:0,physical:0,ongoing:0,needs:0,sanction:0,booked:0,remaining:0,totalSanction:0,totalBooked:0};
+    const g=groupsAll[key], f=statusFlags(w);
     g.janpads.add(String(w.block||'').toUpperCase());
     if(w.panchayat) g.gps.add(String(w.panchayat));
     g.works++;
@@ -1167,23 +1223,57 @@ function shreniDetailRows(){
     g.physical+=f.phys?1:0;
     g.ongoing+=f.ongoing?1:0;
     g.needs+=w.needsVerification?1:0;
-    g.sanction+=Number(w.sanctionAmount||0);
-    g.booked+=Number(w.bookedAmount||0);
-    g.remaining+=remainingExp(w);
+    g.totalSanction+=Number(w.sanctionAmount||0);
+    g.totalBooked+=Number(w.bookedAmount||0);
+    if(f.ongoing){
+      g.sanction+=Number(w.sanctionAmount||0);
+      g.booked+=Number(w.bookedAmount||0);
+      g.remaining+=remainingExp(w);
+    }
   });
 
-  // हर engineer के लिए हर fixed JGSA category दिखानी है — चाहे works 0 हों.
-  // इससे Ashish Tiwari जैसे engineer के लिए Repair & Maintenance etc. zero rows भी दिखेंगी.
+  baseDisplay.forEach(w=>{
+    const engineer=String(w.engineer||'Unmapped');
+    const category=normType(w.workType)||'Uncategorised';
+    const key=engineer+'||'+category;
+    if(!groupsDisplay[key]) groupsDisplay[key]={works:0,completed:0,physical:0,ongoing:0,needs:0,gps:new Set(),janpads:new Set()};
+    const g=groupsDisplay[key], f=statusFlags(w);
+    g.works++;
+    g.completed+=f.comp?1:0;
+    g.physical+=f.phys?1:0;
+    g.ongoing+=f.ongoing?1:0;
+    g.needs+=w.needsVerification?1:0;
+    g.janpads.add(String(w.block||'').toUpperCase());
+    if(w.panchayat) g.gps.add(String(w.panchayat));
+  });
+
   const rows=[];
   Object.values(engineers).forEach(meta=>{
     ALL_CATEGORIES.forEach(category=>{
       const key=meta.engineer+'||'+category;
-      const g=groups[key] || {engineer:meta.engineer,category,janpads:new Set(meta.janpads),gps:new Set(),works:0,completed:0,physical:0,ongoing:0,needs:0,sanction:0,booked:0,remaining:0};
-      g.partA=calcPartAFromCounts(g.completed,g.physical,g.works);
-      g.partB=calcPartBFromMoney(g.booked,g.sanction);
+      const all=groupsAll[key] || {engineer:meta.engineer,category,janpads:new Set(meta.janpads),gps:new Set(),works:0,completed:0,physical:0,ongoing:0,needs:0,sanction:0,booked:0,remaining:0,totalSanction:0,totalBooked:0};
+      const disp=groupsDisplay[key];
+      const g={
+        engineer:meta.engineer,
+        category,
+        janpads:all.janpads,
+        gps:(disp&&disp.gps&&disp.gps.size)?disp.gps:all.gps,
+        works:disp ? disp.works : (statusSelected ? 0 : all.works),
+        completed:disp ? disp.completed : (statusSelected ? 0 : all.completed),
+        physical:disp ? disp.physical : (statusSelected ? 0 : all.physical),
+        ongoing:disp ? disp.ongoing : (statusSelected ? 0 : all.ongoing),
+        needs:disp ? disp.needs : (statusSelected ? 0 : all.needs),
+        sanction:all.sanction,
+        booked:all.booked,
+        remaining:all.remaining,
+        totalSanction:all.totalSanction,
+        totalBooked:all.totalBooked
+      };
+      g.partA=calcPartAFromCounts(all.completed,all.physical,all.works);
+      g.partB=calcPartBOfficial(all.works,all.completed,all.physical,all.ongoing,all.booked,all.sanction);
       g.totalMarks=+(g.partA+g.partB).toFixed(2);
       g.bookedPct=g.sanction?g.booked/g.sanction*100:0;
-      const jset=(g.janpads&&g.janpads.size)?g.janpads:meta.janpads;
+      const jset=(all.janpads&&all.janpads.size)?all.janpads:meta.janpads;
       g.janpad=[...jset].join(', ');
       g.gpCount=(g.gps&&g.gps.size)?g.gps.size:0;
       rows.push(g);
@@ -1191,6 +1281,7 @@ function shreniDetailRows(){
   });
   return rows.sort((a,b)=>String(a.engineer).localeCompare(String(b.engineer),'hi') || ALL_CATEGORIES.indexOf(a.category)-ALL_CATEGORIES.indexOf(b.category));
 }
+
 function shreniWiseEngineerDetails(){
   const rows=shreniDetailRows();
   const totalWorks=rows.reduce((a,r)=>a+r.works,0), totalSanction=rows.reduce((a,r)=>a+r.sanction,0), totalBooked=rows.reduce((a,r)=>a+r.booked,0), totalRemaining=rows.reduce((a,r)=>a+r.remaining,0);
@@ -1198,7 +1289,7 @@ function shreniWiseEngineerDetails(){
   rows.forEach(r=>{ (grouped[r.engineer]||(grouped[r.engineer]=[])).push(r); });
 
   const q=currentSearch();
-  const rankBase=works().filter(w=>passDistrictBlock(w)&&passStatus(w)&&passExp(w)&&matchSearch(w,q));
+  const rankBase=works().filter(w=>passDistrictBlock(w)&&passEngineer(w)&&passExp(w)&&matchSearch(w,q));
   const engineerMeta={};
   calcEngineers(rankBase).forEach(e=>{ engineerMeta[e.engineer]=e; });
 
@@ -1233,6 +1324,8 @@ function shreniWiseEngineerDetails(){
       fmt(r.physical),
       fmt(r.ongoing),
       fmt(r.needs),
+      money(r.totalSanction || 0),
+      money(r.totalBooked || 0),
       money(r.sanction),
       money(r.booked),
       money(r.remaining),
@@ -1265,12 +1358,14 @@ function shreniWiseEngineerDetails(){
           <span class="pill">75–90% Ong. Works ${fmt(expB.b7590)}</span>
           <span class="pill">≥90% Ong. Works ${fmt(expB.b90)}</span>
           <span class="pill">Works ${fmt(ew)}</span>
-          <span class="pill">Sanction ${money(es)}</span>
-          <span class="pill">Booked ${money(eb)}</span>
-          <span class="pill">Remaining ${money(er)}</span>
+          <span class="pill">Total Sanction ${money(items.reduce((a,r)=>a+Number(r.totalSanction||0),0))}</span>
+          <span class="pill">Total Booked ${money(items.reduce((a,r)=>a+Number(r.totalBooked||0),0))}</span>
+          <span class="pill">Ong. Sanction ${money(es)}</span>
+          <span class="pill">Ong. Booked ${money(eb)}</span>
+          <span class="pill">Ong. Remaining ${money(er)}</span>
         </div>
       </div>
-      ${table(['#','Work Type / Shreni','GP','Works','Completed','Physically Completed','Ongoing','Verification','Sanction','Booked','Remaining Exp','Booked %','Part A','Part B','Total Marks','Action'],body)}
+      ${table(['#','Work Type / Shreni','GP','Works','Completed','Physically Completed','Ongoing','Verification','Total Sanction','Total Booked','Ongoing Sanction','Ongoing Booked','Ongoing Remaining Exp','Ongoing Booked %','Part A','Part B','Total Marks','Action'],body)}
     </div>`;
   }).join('');
 
@@ -1278,11 +1373,11 @@ function shreniWiseEngineerDetails(){
   const topCards = `<div class="grid section">
     <div class="card kpi"><div class="label">Engineer</div><div class="val">${selectedEngineerLabel}</div><small>${selectedEngineers.length===1?'Selected engineer':'All engineers'}</small></div>
     <div class="card kpi"><div class="label">Total Works</div><div class="val">${fmt(totalWorks)}</div><small>Filtered works</small></div>
-    <div class="card kpi"><div class="label">Sanction</div><div class="val" style="color:#7c3aed">${amountFmt(totalSanction)}</div><small>Total sanction</small></div>
-    <div class="card kpi"><div class="label">Booked</div><div class="val" style="color:#0f766e">${amountFmt(totalBooked)}</div><small>${pct(totalSanction?totalBooked/totalSanction*100:0)} booked</small></div>
-    <div class="card kpi"><div class="label">Remaining Exp</div><div class="val" style="color:#dc2626">${amountFmt(totalRemaining)}</div><small>Total remaining</small></div>
+    <div class="card kpi"><div class="label">Ongoing Sanction</div><div class="val" style="color:#7c3aed">${amountFmt(totalSanction)}</div><small>Ongoing sanction</small></div>
+    <div class="card kpi"><div class="label">Ongoing Booked</div><div class="val" style="color:#0f766e">${amountFmt(totalBooked)}</div><small>${pct(totalSanction?totalBooked/totalSanction*100:0)} booked</small></div>
+    <div class="card kpi"><div class="label">Ongoing Remaining Exp</div><div class="val" style="color:#dc2626">${amountFmt(totalRemaining)}</div><small>Ongoing remaining</small></div>
   </div>`;
-  app(`<h2>Shreni wise Engineer Details</h2><p class="muted">Engineer-wise card view: engineer का नाम एक बार दिखेगा और नीचे सभी work categories की table रहेगी, zero work categories सहित.</p>${topCards}${engineerCards}`);
+  app(`<h2>Shreni wise Engineer Details</h2><p class="muted">Engineer-wise card view: Part A total completion से और Part B official ongoing booked/sanctioned rule से calculate होगा.</p>${topCards}${engineerCards}`);
 }
 function openEngineerCategory(name,category){
   rememberDetailBack();
@@ -1291,15 +1386,18 @@ function openEngineerCategory(name,category){
   rows=rows.sort((a,b)=>String(a.block||'').localeCompare(String(b.block||''))||String(a.panchayat||'').localeCompare(String(b.panchayat||''))||String(workYear(b)).localeCompare(String(workYear(a))));
   hydrateFinYearsForRows(rows,()=>openEngineerCategory(name,category));
   const flags=rows.map(statusFlags);
-  const sanction=rows.reduce((a,w)=>a+Number(w.sanctionAmount||0),0), booked=rows.reduce((a,w)=>a+Number(w.bookedAmount||0),0), rem=rows.reduce((a,w)=>a+remainingExp(w),0);
   const completedTotal=flags.filter(f=>f.comp).length;
   const physicalTotal=flags.filter(f=>f.phys).length;
+  const ongoingTotal=flags.filter(f=>f.ongoing).length;
+  const sanctionTotal=rows.reduce((a,w)=>a+Number(w.sanctionAmount||0),0), bookedTotal=rows.reduce((a,w)=>a+Number(w.bookedAmount||0),0);
+  const ongoingRows=rows.filter(w=>statusFlags(w).ongoing);
+  const sanction=ongoingRows.reduce((a,w)=>a+Number(w.sanctionAmount||0),0), booked=ongoingRows.reduce((a,w)=>a+Number(w.bookedAmount||0),0), rem=ongoingRows.reduce((a,w)=>a+remainingExp(w),0);
   const partATotal=calcPartAFromCounts(completedTotal,physicalTotal,rows.length);
-  const partBTotal=calcPartBFromMoney(booked,sanction);
+  const partBTotal=calcPartBOfficial(rows.length,completedTotal,physicalTotal,ongoingTotal,booked,sanction);
   const totalMarks=partATotal+partBTotal;
-  const bygp={}; rows.forEach(w=>{let k=(w.block||'')+'||'+(w.panchayat||''); bygp[k]||(bygp[k]={janpad:w.block,gp:w.panchayat,works:0,completed:0,physical:0,ongoing:0,needs:0,sanction:0,booked:0,remaining:0}); let g=bygp[k], f=statusFlags(w); g.works++; g.completed+=f.comp?1:0; g.physical+=f.phys?1:0; g.ongoing+=f.ongoing?1:0; g.needs+=w.needsVerification?1:0; g.sanction+=Number(w.sanctionAmount||0); g.booked+=Number(w.bookedAmount||0); g.remaining+=remainingExp(w); });
-  const gpRows=Object.values(bygp).map(g=>{g.partA=calcPartAFromCounts(g.completed,g.physical,g.works); g.partB=calcPartBFromMoney(g.booked,g.sanction); g.totalMarks=g.partA+g.partB; return g;}).sort((a,b)=>String(a.janpad).localeCompare(String(b.janpad))||String(a.gp).localeCompare(String(b.gp)));
-  app(`<button class="btn" onclick="engineerScorecard()">← Engineer Scorecard</button><h2>${category} — ${name}</h2><div class="section grid"><div class="card kpi"><div class="label">Total Works</div><div class="val">${fmt(rows.length)}</div><small>${category}</small></div><div class="card kpi"><div class="label">Completed + Physical</div><div class="val" style="color:#059669">${fmt(completedTotal+physicalTotal)}</div><small>Completed status</small></div><div class="card kpi"><div class="label">Ongoing</div><div class="val">${fmt(flags.filter(f=>f.ongoing).length)}</div><small>Running works</small></div><div class="card kpi"><div class="label">Sanction</div><div class="val" style="color:#7c3aed">${moneyCr(sanction)}</div><small>Total sanction</small></div><div class="card kpi"><div class="label">Booked</div><div class="val" style="color:#0f766e">${moneyCr(booked)}</div><small>${pct(sanction?booked/sanction*100:0)} booked</small></div><div class="card kpi"><div class="label">Remaining Exp</div><div class="val" style="color:#dc2626">${moneyCr(rem)}</div><small>Total remaining</small></div><div class="card kpi"><div class="label">Part A Marks</div><div class="val" style="color:#2563eb">${partATotal.toFixed(2)}</div><small>Completion marks /5</small></div><div class="card kpi"><div class="label">Part B Marks</div><div class="val" style="color:#16a34a">${partBTotal.toFixed(2)}</div><small>Booked marks /5</small></div><div class="card kpi"><div class="label">Total Marks</div><div class="val" style="color:#92400e">${totalMarks.toFixed(2)}</div><small>Part A + Part B /10</small></div></div><div class="section card"><h2>GP-wise Summary</h2>${table(['#','Janpad','GP','Works','Completed','Physically Completed','Ongoing','Verification','Sanction','Booked','Remaining Exp','Booked %','Part A','Part B','Total Marks'], gpRows.map((g,i)=>[i+1,g.janpad,g.gp,fmt(g.works),fmt(g.completed),fmt(g.physical),fmt(g.ongoing),fmt(g.needs),money(g.sanction),money(g.booked),money(g.remaining),pct(g.sanction?g.booked/g.sanction*100:0),g.partA.toFixed(2),g.partB.toFixed(2),g.totalMarks.toFixed(2)]))}</div><h2>Detailed Work List</h2>`+table(['#','FY','Work Code','Work Name','Janpad','GP','Status','Sanction','Booked','Remaining Exp','Booked %','Verification'], rows.map((w,i)=>[i+1,workYear(w),w.workCode,w.workName,w.block,w.panchayat,w.status,money(w.sanctionAmount),money(w.bookedAmount),money(remainingExp(w)),pct(w.expPercent),w.needsVerification?'<span class="pill gD">Needs Verification</span>':''])));
+  const bygp={}; rows.forEach(w=>{let k=(w.block||'')+'||'+(w.panchayat||''); bygp[k]||(bygp[k]={janpad:w.block,gp:w.panchayat,works:0,completed:0,physical:0,ongoing:0,needs:0,sanction:0,booked:0,remaining:0,totalSanction:0,totalBooked:0}); let g=bygp[k], f=statusFlags(w); g.works++; g.completed+=f.comp?1:0; g.physical+=f.phys?1:0; g.ongoing+=f.ongoing?1:0; g.needs+=w.needsVerification?1:0; g.totalSanction+=Number(w.sanctionAmount||0); g.totalBooked+=Number(w.bookedAmount||0); if(f.ongoing){g.sanction+=Number(w.sanctionAmount||0); g.booked+=Number(w.bookedAmount||0); g.remaining+=remainingExp(w);} });
+  const gpRows=Object.values(bygp).map(g=>{g.partA=calcPartAFromCounts(g.completed,g.physical,g.works); g.partB=calcPartBOfficial(g.works,g.completed,g.physical,g.ongoing,g.booked,g.sanction); g.totalMarks=g.partA+g.partB; g.bookedPct=g.sanction?g.booked/g.sanction*100:0; return g;}).sort((a,b)=>String(a.janpad).localeCompare(String(b.janpad))||String(a.gp).localeCompare(String(b.gp)));
+  app(`<button class="btn" onclick="engineerScorecard()">← Engineer Scorecard</button><h2>${category} — ${name}</h2><div class="section grid"><div class="card kpi"><div class="label">Total Works</div><div class="val">${fmt(rows.length)}</div><small>${category}</small></div><div class="card kpi"><div class="label">Completed + Physical</div><div class="val" style="color:#059669">${fmt(completedTotal+physicalTotal)}</div><small>Completed status</small></div><div class="card kpi"><div class="label">Ongoing</div><div class="val">${fmt(flags.filter(f=>f.ongoing).length)}</div><small>Running works</small></div><div class="card kpi"><div class="label">Ongoing Sanction</div><div class="val" style="color:#7c3aed">${moneyCr(sanction)}</div><small>Ongoing sanction</small></div><div class="card kpi"><div class="label">Ongoing Booked</div><div class="val" style="color:#0f766e">${moneyCr(booked)}</div><small>${pct(sanction?booked/sanction*100:0)} booked</small></div><div class="card kpi"><div class="label">Ongoing Remaining Exp</div><div class="val" style="color:#dc2626">${moneyCr(rem)}</div><small>Ongoing remaining</small></div><div class="card kpi"><div class="label">Part A Marks</div><div class="val" style="color:#2563eb">${partATotal.toFixed(2)}</div><small>Completion marks /5</small></div><div class="card kpi"><div class="label">Part B Marks</div><div class="val" style="color:#16a34a">${partBTotal.toFixed(2)}</div><small>Ongoing booked marks /5</small></div><div class="card kpi"><div class="label">Total Marks</div><div class="val" style="color:#92400e">${totalMarks.toFixed(2)}</div><small>Part A + Part B /10</small></div></div><div class="section card"><h2>GP-wise Summary</h2>${table(['#','Janpad','GP','Works','Completed','Physically Completed','Ongoing','Verification','Sanction','Booked','Remaining Exp','Booked %','Part A','Part B','Total Marks'], gpRows.map((g,i)=>[i+1,g.janpad,g.gp,fmt(g.works),fmt(g.completed),fmt(g.physical),fmt(g.ongoing),fmt(g.needs),money(g.sanction),money(g.booked),money(g.remaining),pct(g.sanction?g.booked/g.sanction*100:0),g.partA.toFixed(2),g.partB.toFixed(2),g.totalMarks.toFixed(2)]))}</div><h2>Detailed Work List</h2>`+table(['#','FY','Work Code','Work Name','Janpad','GP','Status','Sanction','Booked','Remaining Exp','Booked %','Verification'], rows.map((w,i)=>[i+1,workYear(w),w.workCode,w.workName,w.block,w.panchayat,w.status,money(w.sanctionAmount),money(w.bookedAmount),money(remainingExp(w)),pct(w.expPercent),w.needsVerification?'<span class="pill gD">Needs Verification</span>':''])));
 }
 function escapeAttr(s){return String(s||'').replaceAll('\\','\\\\').replaceAll("'","\\'").replaceAll('\n',' ')}
 function openGPList(name){
@@ -1455,7 +1553,7 @@ function openCategoryWorkList(name, category){
     <div class="card kpi"><div class="label">Physically Completed</div><div class="val">${fmt(physical)}</div></div>
     <div class="card kpi"><div class="label">Ongoing</div><div class="val">${fmt(ongoing)}</div></div>
     <div class="card kpi"><div class="label">Verification</div><div class="val">${fmt(needs)}</div></div>
-    <div class="card kpi"><div class="label">Remaining Exp</div><div class="val" style="font-size:25px">${money(rem)}</div></div>
+    <div class="card kpi"><div class="label">Ongoing Remaining Exp</div><div class="val" style="font-size:25px">${money(rem)}</div></div>
   </div>
   <div class="section card"><h2>Year-wise Summary</h2>${table(['Year','Works','Completed','Physical','Ongoing','Verification','Sanction','Booked','Remaining Exp'], summary.map(g=>[g.year,fmt(g.works),fmt(g.completed),fmt(g.physical),fmt(g.ongoing),fmt(g.needs),money(g.sanction),money(g.booked),money(g.remaining)]))}</div>
   <h2>Detailed Work List</h2>`+table(['#','Year','Work Code','Work Name','Janpad','GP','Type','Status','Sanction','Booked','Remaining Exp','Booked %','Verification'], rows.map((w,i)=>[i+1,workYear(w),w.workCode,w.workName,w.block,w.panchayat,w.workType,w.status,money(w.sanctionAmount),money(w.bookedAmount),money(remainingExp(w)),pct(w.expPercent),w.needsVerification?'<span class="pill gD">Needs Verification</span>':''])));
