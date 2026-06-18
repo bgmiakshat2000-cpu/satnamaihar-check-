@@ -493,6 +493,43 @@ body.login-locked{overflow:hidden}
 }
 </style>
 
+
+<style id="engineer-total-work-highlight-css">
+.totalWorkTag{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  margin-left:8px;
+  padding:5px 12px;
+  border-radius:999px;
+  border:2px solid #2563eb;
+  background:linear-gradient(135deg,#dbeafe,#ecfeff);
+  color:#0b3b66;
+  font-size:16px;
+  font-weight:950;
+  box-shadow:0 8px 18px rgba(37,99,235,.16);
+  vertical-align:middle;
+}
+.totalWorkTag::before{
+  content:"📌";
+  font-size:14px;
+}
+@media print{
+  body.pdf-exporting.pdf-shreni .totalWorkTag{
+    font-size:22px !important;
+    padding:5px 12px !important;
+    border:2px solid #2563eb !important;
+    background:#dbeafe !important;
+    color:#0b3b66 !important;
+    font-weight:950 !important;
+    box-shadow:none !important;
+  }
+  body.pdf-exporting.pdf-shreni .totalWorkTag::before{
+    font-size:18px !important;
+  }
+}
+</style>
+
 </head><body class="login-locked">
 
 <div id="loginScreen" class="login-screen" role="dialog" aria-modal="true" aria-label="Dashboard Login">
@@ -1208,7 +1245,7 @@ function shreniWiseEngineerDetails(){
     return `<div class="card section" style="overflow:hidden">
       <div style="display:flex;justify-content:space-between;gap:14px;align-items:flex-start;flex-wrap:wrap;margin-bottom:12px">
         <div>
-          <h2 style="margin:0">${engineer} <span class="clusterTag">क्लस्टर: ${clusterName}</span></h2>
+          <h2 style="margin:0">${engineer} <span class="clusterTag">क्लस्टर: ${clusterName}</span> <span class="totalWorkTag">कुल कार्य: ${fmt(ew)}</span></h2>
           <span class="subline">${ej||'All Janpad'} • Janpad Rank ${fmt(janpadRank)} • Score ${scoreVal}/10</span>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
