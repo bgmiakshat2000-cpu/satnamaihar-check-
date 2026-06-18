@@ -621,6 +621,80 @@ body.login-locked{overflow:hidden}
 }
 </style>
 
+
+<style id="shreni-total-rem-exp-compact-css">
+.shreniFitTable{
+  width:100%;
+  overflow-x:hidden !important;
+}
+.shreniFitTable table{
+  width:100% !important;
+  min-width:0 !important;
+  table-layout:fixed !important;
+  font-size:10.6px !important;
+}
+.shreniFitTable th,
+.shreniFitTable td{
+  padding:5px 3px !important;
+  line-height:1.08 !important;
+  white-space:normal !important;
+  overflow-wrap:anywhere !important;
+}
+.shreniFitTable th{
+  font-size:9.5px !important;
+  letter-spacing:.01em !important;
+}
+.shreniFitTable td .dot{ margin-right:3px !important; }
+.shreniMini{
+  padding:5px 7px !important;
+  font-size:10px !important;
+  border-radius:9px !important;
+}
+.shreniFitTable th:nth-child(1), .shreniFitTable td:nth-child(1){width:2.2% !important;}
+.shreniFitTable th:nth-child(2), .shreniFitTable td:nth-child(2){width:10.4% !important;}
+.shreniFitTable th:nth-child(3), .shreniFitTable td:nth-child(3){width:2.8% !important;}
+.shreniFitTable th:nth-child(4), .shreniFitTable td:nth-child(4){width:3.4% !important;}
+.shreniFitTable th:nth-child(5), .shreniFitTable td:nth-child(5){width:3.5% !important;}
+.shreniFitTable th:nth-child(6), .shreniFitTable td:nth-child(6){width:4.6% !important;}
+.shreniFitTable th:nth-child(7), .shreniFitTable td:nth-child(7){width:3.4% !important;}
+.shreniFitTable th:nth-child(8), .shreniFitTable td:nth-child(8){width:3.5% !important;}
+.shreniFitTable th:nth-child(9), .shreniFitTable td:nth-child(9){width:5.5% !important;}
+.shreniFitTable th:nth-child(10), .shreniFitTable td:nth-child(10){width:5.5% !important;}
+.shreniFitTable th:nth-child(11), .shreniFitTable td:nth-child(11){width:5.5% !important;}
+.shreniFitTable th:nth-child(12), .shreniFitTable td:nth-child(12){width:4.0% !important;}
+.shreniFitTable th:nth-child(13), .shreniFitTable td:nth-child(13){width:5.5% !important;}
+.shreniFitTable th:nth-child(14), .shreniFitTable td:nth-child(14){width:5.5% !important;}
+.shreniFitTable th:nth-child(15), .shreniFitTable td:nth-child(15){width:5.7% !important;}
+.shreniFitTable th:nth-child(16), .shreniFitTable td:nth-child(16){width:4.0% !important;}
+.shreniFitTable th:nth-child(17), .shreniFitTable td:nth-child(17){width:3.4% !important;}
+.shreniFitTable th:nth-child(18), .shreniFitTable td:nth-child(18){width:3.4% !important;}
+.shreniFitTable th:nth-child(19), .shreniFitTable td:nth-child(19){width:4.6% !important;}
+.shreniFitTable th:nth-child(20), .shreniFitTable td:nth-child(20){width:3.8% !important;}
+
+@media (max-width: 1450px){
+  .shreniFitTable table{font-size:9.9px !important;}
+  .shreniFitTable th{font-size:8.9px !important;}
+  .shreniFitTable th,.shreniFitTable td{padding:4.5px 2px !important;}
+  .shreniMini{padding:4px 6px !important;font-size:9px !important;}
+}
+@media print{
+  body.pdf-exporting.pdf-shreni .shreniFitTable table{
+    width:100% !important;
+    min-width:0 !important;
+    table-layout:fixed !important;
+    font-size:11.4px !important;
+  }
+  body.pdf-exporting.pdf-shreni .shreniFitTable th{
+    font-size:10.2px !important;
+  }
+  body.pdf-exporting.pdf-shreni .shreniFitTable th,
+  body.pdf-exporting.pdf-shreni .shreniFitTable td{
+    padding:4.8px 2.6px !important;
+    line-height:1.08 !important;
+  }
+}
+</style>
+
 </head><body class="login-locked">
 
 <div id="loginScreen" class="login-screen" role="dialog" aria-modal="true" aria-label="Dashboard Login">
@@ -1409,6 +1483,8 @@ function shreniWiseEngineerDetails(){
       fmt(r.needs),
       moneyL(r.totalSanction || 0),
       moneyL(r.totalBooked || 0),
+      moneyL(Math.max(0, Number(r.totalSanction||0)-Number(r.totalBooked||0))),
+      pct((r.totalSanction||0)?(Number(r.totalBooked||0)/Number(r.totalSanction||0)*100):0),
       moneyL(r.sanction),
       moneyL(r.booked),
       moneyL(r.remaining),
@@ -1443,12 +1519,14 @@ function shreniWiseEngineerDetails(){
           <span class="pill">Works ${fmt(ew)}</span>
           <span class="pill">Total Sanction ${money(items.reduce((a,r)=>a+Number(r.totalSanction||0),0))}</span>
           <span class="pill">Total Booked ${money(items.reduce((a,r)=>a+Number(r.totalBooked||0),0))}</span>
+          <span class="pill">Total Rem. ${money(Math.max(0,items.reduce((a,r)=>a+Number(r.totalSanction||0),0)-items.reduce((a,r)=>a+Number(r.totalBooked||0),0)))}</span>
+          <span class="pill">Exp % ${pct(items.reduce((a,r)=>a+Number(r.totalSanction||0),0)?items.reduce((a,r)=>a+Number(r.totalBooked||0),0)/items.reduce((a,r)=>a+Number(r.totalSanction||0),0)*100:0)}</span>
           <span class="pill">Ong. Sanction ${money(es)}</span>
           <span class="pill">Ong. Booked ${money(eb)}</span>
           <span class="pill">Ong. Remaining ${money(er)}</span>
         </div>
       </div>
-      <div class="shreniFitTable">${table(['#','Work Type','GP','Works','Comp.','Phy. Comp.','Ong.','Verif.','Tot. Sanc.','Tot. Booked','Ong. Sanc.','Ong. Booked','Ong. Rem.','Ong. %','Part A','Part B','Marks','Action'],body)}</div>
+      <div class="shreniFitTable">${table(['#','Work Type','GP','Works','Comp.','Phy. Comp.','Ong.','Verif.','Tot. Sanc.','Tot. Booked','Tot. Rem.','Exp %','Ong. Sanc.','Ong. Booked','Ong. Rem.','Ong. %','A','B','Marks','Action'],body)}</div>
     </div>`;
   }).join('');
 
