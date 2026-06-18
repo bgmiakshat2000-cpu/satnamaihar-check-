@@ -539,6 +539,88 @@ body.login-locked{overflow:hidden}
 }
 </style>
 
+
+<style id="shreni-one-page-compact-css">
+.shreniFitTable{
+  width:100%;
+  overflow-x:hidden !important;
+}
+.shreniFitTable table{
+  width:100% !important;
+  min-width:0 !important;
+  table-layout:fixed !important;
+  font-size:11.6px !important;
+}
+.shreniFitTable th,
+.shreniFitTable td{
+  padding:6px 4px !important;
+  line-height:1.12 !important;
+  white-space:normal !important;
+  word-break:normal !important;
+  overflow-wrap:anywhere !important;
+}
+.shreniFitTable th{
+  font-size:10.5px !important;
+  letter-spacing:.02em !important;
+}
+.shreniFitTable td{
+  vertical-align:middle !important;
+}
+.shreniFitTable td .dot{
+  margin-right:4px !important;
+}
+.shreniMini{
+  padding:6px 9px !important;
+  font-size:11px !important;
+  border-radius:10px !important;
+}
+.shreniFitTable th:nth-child(1), .shreniFitTable td:nth-child(1){width:2.6% !important;}
+.shreniFitTable th:nth-child(2), .shreniFitTable td:nth-child(2){width:11.5% !important;}
+.shreniFitTable th:nth-child(3), .shreniFitTable td:nth-child(3){width:3.4% !important;}
+.shreniFitTable th:nth-child(4), .shreniFitTable td:nth-child(4){width:3.8% !important;}
+.shreniFitTable th:nth-child(5), .shreniFitTable td:nth-child(5){width:4.2% !important;}
+.shreniFitTable th:nth-child(6), .shreniFitTable td:nth-child(6){width:5.4% !important;}
+.shreniFitTable th:nth-child(7), .shreniFitTable td:nth-child(7){width:4.2% !important;}
+.shreniFitTable th:nth-child(8), .shreniFitTable td:nth-child(8){width:4.2% !important;}
+.shreniFitTable th:nth-child(9), .shreniFitTable td:nth-child(9){width:6.3% !important;}
+.shreniFitTable th:nth-child(10), .shreniFitTable td:nth-child(10){width:6.3% !important;}
+.shreniFitTable th:nth-child(11), .shreniFitTable td:nth-child(11){width:6.3% !important;}
+.shreniFitTable th:nth-child(12), .shreniFitTable td:nth-child(12){width:6.3% !important;}
+.shreniFitTable th:nth-child(13), .shreniFitTable td:nth-child(13){width:6.6% !important;}
+.shreniFitTable th:nth-child(14), .shreniFitTable td:nth-child(14){width:4.6% !important;}
+.shreniFitTable th:nth-child(15), .shreniFitTable td:nth-child(15){width:4.4% !important;}
+.shreniFitTable th:nth-child(16), .shreniFitTable td:nth-child(16){width:4.4% !important;}
+.shreniFitTable th:nth-child(17), .shreniFitTable td:nth-child(17){width:5.0% !important;}
+.shreniFitTable th:nth-child(18), .shreniFitTable td:nth-child(18){width:4.5% !important;}
+
+@media (max-width: 1400px){
+  .shreniFitTable table{font-size:10.8px !important;}
+  .shreniFitTable th{font-size:9.8px !important;}
+  .shreniFitTable th,.shreniFitTable td{padding:5px 3px !important;}
+  .shreniMini{padding:5px 7px !important;font-size:10px !important;}
+}
+@media print{
+  body.pdf-exporting.pdf-shreni .shreniFitTable table{
+    width:100% !important;
+    min-width:0 !important;
+    table-layout:fixed !important;
+    font-size:12.6px !important;
+  }
+  body.pdf-exporting.pdf-shreni .shreniFitTable th{
+    font-size:11.5px !important;
+  }
+  body.pdf-exporting.pdf-shreni .shreniFitTable th,
+  body.pdf-exporting.pdf-shreni .shreniFitTable td{
+    padding:5.5px 3.5px !important;
+    line-height:1.10 !important;
+  }
+  body.pdf-exporting.pdf-shreni .shreniMini{
+    padding:5px 7px !important;
+    font-size:10.5px !important;
+  }
+}
+</style>
+
 </head><body class="login-locked">
 
 <div id="loginScreen" class="login-screen" role="dialog" aria-modal="true" aria-label="Dashboard Login">
@@ -768,6 +850,7 @@ let selectedBreakdown=null;
 let workMonitorPage=1;
 const fmt=n=>Number(n||0).toLocaleString('en-IN');
 const money=n=>'₹'+(Number(n||0)/100000).toFixed(2)+' लाख';
+const moneyL=n=>'₹'+(Number(n||0)/100000).toFixed(2)+'L';
 const moneyCr=n=>'₹'+(Number(n||0)/10000000).toFixed(2)+' Cr';
 const moneySmartShreni=(n,isSingle)=>isSingle?money(n):moneyCr(n);
 const pct=n=>(Number(n||0)).toFixed(1)+'%';
@@ -1324,16 +1407,16 @@ function shreniWiseEngineerDetails(){
       fmt(r.physical),
       fmt(r.ongoing),
       fmt(r.needs),
-      money(r.totalSanction || 0),
-      money(r.totalBooked || 0),
-      money(r.sanction),
-      money(r.booked),
-      money(r.remaining),
+      moneyL(r.totalSanction || 0),
+      moneyL(r.totalBooked || 0),
+      moneyL(r.sanction),
+      moneyL(r.booked),
+      moneyL(r.remaining),
       pct(r.bookedPct),
       `<b style="color:#2563eb">${r.partA.toFixed(2)}</b>`,
       `<b style="color:#16a34a">${r.partB.toFixed(2)}</b>`,
       `<b class="score">${r.totalMarks.toFixed(2)}/10</b>`,
-      `<button class="miniBtn" onclick="openEngineerCategory('${escapeAttr(r.engineer)}','${escapeAttr(r.category)}')">Details</button>`
+      `<button class="miniBtn shreniMini" onclick="openEngineerCategory('${escapeAttr(r.engineer)}','${escapeAttr(r.category)}')">View</button>`
     ]);
     return `<div class="card section" style="overflow:hidden">
       <div style="display:flex;justify-content:space-between;gap:14px;align-items:flex-start;flex-wrap:wrap;margin-bottom:12px">
@@ -1365,7 +1448,7 @@ function shreniWiseEngineerDetails(){
           <span class="pill">Ong. Remaining ${money(er)}</span>
         </div>
       </div>
-      ${table(['#','Work Type / Shreni','GP','Works','Completed','Physically Completed','Ongoing','Verification','Total Sanction','Total Booked','Ongoing Sanction','Ongoing Booked','Ongoing Remaining Exp','Ongoing Booked %','Part A','Part B','Total Marks','Action'],body)}
+      <div class="shreniFitTable">${table(['#','Work Type','GP','Works','Comp.','Phy. Comp.','Ong.','Verif.','Tot. Sanc.','Tot. Booked','Ong. Sanc.','Ong. Booked','Ong. Rem.','Ong. %','Part A','Part B','Marks','Action'],body)}</div>
     </div>`;
   }).join('');
 
